@@ -1,5 +1,7 @@
 # rsh
 
+[![CI](https://github.com/ferris007/rsh/actions/workflows/ci.yml/badge.svg)](https://github.com/ferris007/rsh/actions/workflows/ci.yml)
+
 A Unix shell built from first principles in Rust — exploring processes, file
 descriptors, pipelines, signals, job control, terminals, and event-driven
 systems.
@@ -88,8 +90,11 @@ part of the deliverable.
 
 ## Documentation
 
-- [Architecture](docs/architecture.md)
-- [Roadmap](docs/roadmap.md)
+- [Architecture](docs/architecture.md) — how the crates split, and why
+- [Process model](docs/process-model.md) — `fork`, `exec`, and the window between
+- [Roadmap](docs/roadmap.md) — the phases, and what each one teaches
+- [Experiments](experiments/) — one question, one program, one observation
+- [Contributing](CONTRIBUTING.md) — what kind of help fits a project like this
 
 ## License
 
