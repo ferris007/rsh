@@ -20,7 +20,20 @@ const RSH: &str = env!("CARGO_BIN_EXE_rsh");
 /// Closing stdin after writing is what produces the end-of-input the REPL
 /// treats as Ctrl-D, so scripts do not need a trailing `exit`.
 fn run(script: &str) -> Session {
-    let mut child = Command::new(RSH)
+    run_with_env(script, &[])
+}
+
+/// Run a script with extra variables in the shell's environment.
+///
+/// Expansion reads the real process environment, so this is how a test gives it
+/// something to find.
+fn run_with_env(script: &str, vars: &[(&str, &str)]) -> Session {
+    let mut command = Command::new(RSH);
+    for (name, value) in vars {
+        command.env(name, value);
+    }
+
+    let mut child = command
         .current_dir(env!("CARGO_MANIFEST_DIR"))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -165,7 +178,7 @@ fn blank_lines_and_comments_do_nothing() {
 fn unimplemented_operators_are_refused_by_name() {
     let session = run("echo hi | grep hi\n");
     let stderr = session.stderr();
-    assert!(stderr.contains('|'), "stderr was {stderr:?}");
+    assert!(stderr.contains("pipelines"), "stderr was {stderr:?}");
     assert!(stderr.contains("phase 4"), "stderr was {stderr:?}");
     // Refused, not partially run: `echo` must not have executed.
     assert_eq!(session.stdout(), "");
@@ -173,11 +186,29 @@ fn unimplemented_operators_are_refused_by_name() {
 }
 
 #[test]
-fn a_parse_error_points_at_the_offending_character() {
+fn control_operators_are_refused_too() {
+    for script in [
+        "true && echo yes\n",
+        "true || echo no\n",
+        "echo a ; echo b\n",
+    ] {
+        let session = run(script);
+        assert_eq!(session.stdout(), "", "{script:?} ran something");
+        assert_eq!(session.code(), 2, "{script:?}");
+    }
+}
+
+#[test]
+fn refusals_underline_the_offending_characters() {
     let session = run("echo hi > out\n");
     let stderr = session.stderr();
     assert!(stderr.contains('^'), "stderr was {stderr:?}");
     assert!(stderr.contains("phase 3"), "stderr was {stderr:?}");
+    // The refusal has to happen before anything runs: `>` must not have
+    // created the file on the way to being declined.
+    assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("out")
+        .exists());
 }
 
 #[test]
@@ -267,6 +298,96 @@ fn builtins_are_found_before_path() {
     let session = run("exit 7\necho unreachable\n");
     assert_eq!(session.stdout(), "");
     assert_eq!(session.code(), 7);
+}
+
+// ---- expansion -------------------------------------------------------------
+
+#[test]
+fn the_exit_status_is_readable_as_a_variable() {
+    // `$?` is the first thing Phase 2 makes possible that Phase 1 could not do
+    // at all: the shell can finally report its own state back to the user.
+    assert_eq!(run("sh -c 'exit 7'\necho $?\n").stdout(), "7\n");
+    assert_eq!(run("true\necho $?\n").stdout(), "0\n");
+}
+
+#[test]
+fn variables_from_the_environment_expand() {
+    let session = run_with_env("echo $GREETING\n", &[("GREETING", "hello")]);
+    assert_eq!(session.stdout(), "hello\n");
+}
+
+#[test]
+fn expansion_happens_inside_double_quotes_but_not_single() {
+    let vars = [("NAME", "world")];
+    assert_eq!(
+        run_with_env(r#"echo "hi $NAME""#, &vars).stdout(),
+        "hi world\n"
+    );
+    assert_eq!(
+        run_with_env("echo 'hi $NAME'", &vars).stdout(),
+        "hi $NAME\n"
+    );
+}
+
+#[test]
+fn tilde_expands_to_home() {
+    let home = std::env::var("HOME").expect("HOME must be set to run this test");
+    assert_eq!(run("echo ~\n").stdout(), format!("{home}\n"));
+    assert_eq!(run("echo ~/src\n").stdout(), format!("{home}/src\n"));
+}
+
+#[test]
+fn an_unquoted_expansion_is_split_into_separate_arguments() {
+    // `$#` is the argument count as the child sees it, which is the only way to
+    // observe field splitting from outside the shell.
+    let vars = [("LIST", "a b c")];
+    assert_eq!(
+        run_with_env("sh -c 'echo $#' sh $LIST\n", &vars).stdout(),
+        "3\n"
+    );
+    assert_eq!(
+        run_with_env(r#"sh -c 'echo $#' sh "$LIST""#, &vars).stdout(),
+        "1\n"
+    );
+}
+
+#[test]
+fn an_unset_variable_passes_no_argument_unless_quoted() {
+    assert_eq!(run("sh -c 'echo $#' sh $NOPE\n").stdout(), "0\n");
+    assert_eq!(run(r#"sh -c 'echo $#' sh "$NOPE""#).stdout(), "1\n");
+}
+
+#[test]
+fn the_shell_reports_its_own_pid() {
+    let session = run("echo $$\n");
+    let printed: u32 = session.stdout().trim().parse().expect("expected a pid");
+    assert!(printed > 1, "expected a plausible pid, got {printed}");
+}
+
+#[test]
+fn cd_expands_its_argument() {
+    // Expansion happens before dispatch, so builtins get it for free.
+    let session = run_with_env("cd $TARGET\npwd\n", &[("TARGET", "/usr")]);
+    assert_eq!(session.stdout(), "/usr\n");
+}
+
+#[test]
+fn unsupported_parameter_forms_are_reported_not_guessed() {
+    let session = run("echo ${NAME:-fallback}\n");
+    assert_eq!(session.stdout(), "");
+    assert_eq!(session.code(), 2);
+    assert!(
+        session.stderr().contains("${NAME:-fallback}"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+}
+
+#[test]
+fn command_substitution_is_refused_rather_than_ignored() {
+    let session = run("echo $(date)\n");
+    assert_eq!(session.stdout(), "");
+    assert_eq!(session.code(), 2);
 }
 
 // ---- interactivity ---------------------------------------------------------

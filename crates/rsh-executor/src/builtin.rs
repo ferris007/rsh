@@ -12,8 +12,6 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
-use rsh_parser::Command;
-
 use crate::shell::Outcome;
 
 /// Status returned by a builtin that was used incorrectly.
@@ -43,10 +41,14 @@ impl Builtin {
     }
 
     /// Run the builtin, returning whether to continue and the new `$?`.
-    pub(crate) fn run(self, command: &Command, last_status: i32) -> (Outcome, i32) {
+    ///
+    /// `args` excludes the builtin's own name and has already been expanded, so
+    /// `cd $HOME` and `cd /home/ferris` are indistinguishable here — which is
+    /// the point of doing expansion before dispatch.
+    pub(crate) fn run(self, args: &[String], last_status: i32) -> (Outcome, i32) {
         match self {
-            Self::Cd => (Outcome::Continue, cd(command.args())),
-            Self::Exit => exit(command.args(), last_status),
+            Self::Cd => (Outcome::Continue, cd(args)),
+            Self::Exit => exit(args, last_status),
         }
     }
 }

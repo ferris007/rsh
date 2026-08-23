@@ -69,17 +69,23 @@ Pipeline
            └── stdout → result.txt
 ```
 
-- [ ] Lexer
-- [ ] Tokens
-- [ ] Quoting
-- [ ] Escaping
-- [ ] Environment expansion
-- [ ] Command AST
-- [ ] Pipeline AST
-- [ ] Redirection AST
-- [ ] Parser error reporting
+- [x] Lexer
+- [x] Tokens
+- [x] Quoting
+- [x] Escaping
+- [x] Environment expansion
+- [x] Command AST
+- [x] Pipeline AST
+- [x] Redirection AST
+- [x] Parser error reporting
 
 **Goal:** separate parsing from execution.
+
+Notes: [`docs/parsing.md`](parsing.md). The tree is complete before anything can
+run it — the shell parses `echo hi | grep hi > out` fully and then declines to
+execute it, naming the phase that will. Expansion is parsed here but *evaluated*
+in the executor, because resolving `$HOME` means reading the environment and
+this crate is not allowed to.
 
 ---
 
