@@ -1,6 +1,11 @@
 [workspace]
 resolver = "2"
-members = ["crates/rsh"]
+members = [
+    "crates/rsh",
+    "crates/rsh-parser",
+    "crates/rsh-process",
+    "crates/rsh-executor",
+]
 
 [workspace.package]
 version = "0.1.0"
@@ -11,10 +16,14 @@ repository = "https://github.com/ferris007/rsh"
 authors = ["rsh contributors"]
 
 [workspace.dependencies]
+rsh-parser = { path = "crates/rsh-parser" }
+rsh-process = { path = "crates/rsh-process" }
+rsh-executor = { path = "crates/rsh-executor" }
+
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
 # `unsafe` in this project is limited to the places where the *semantics* are
 # genuinely unsafe (fork, exec), not to every syscall.
-nix = { version = "0.31", default-features = false }
+nix = { version = "0.31", default-features = false, features = ["fs", "process", "signal", "term"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

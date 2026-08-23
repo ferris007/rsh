@@ -33,17 +33,21 @@ rsh> pwd
 rsh>
 ```
 
-- [ ] Interactive prompt
-- [ ] Read input
-- [ ] Basic command parsing
-- [ ] Command lookup through `PATH`
-- [ ] Process creation
-- [ ] Process execution
-- [ ] Exit status handling
-- [ ] Built-in `cd`
-- [ ] Built-in `exit`
+- [x] Interactive prompt
+- [x] Read input
+- [x] Basic command parsing
+- [x] Command lookup through `PATH`
+- [x] Process creation
+- [x] Process execution
+- [x] Exit status handling
+- [x] Built-in `cd`
+- [x] Built-in `exit`
 
 **Systems concepts:** processes, `fork`, `exec`, `wait`, environment variables.
+
+Notes: [`docs/process-model.md`](process-model.md). Words are not expanded yet
+(`$HOME` is literal until Phase 2), and operators are recognised and refused
+rather than silently treated as arguments.
 
 ---
 

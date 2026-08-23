@@ -1,6 +1,6 @@
 [package]
-name = "rsh"
-description = "A Unix shell built from first principles in Rust"
+name = "rsh-process"
+description = "Process creation and exit-status handling for the rsh shell"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,7 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
-rsh-executor = { workspace = true }
+nix = { workspace = true }
 
 [lints]
 workspace = true

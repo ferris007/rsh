@@ -14,8 +14,32 @@ Unix actually works**.
 
 ## Status
 
-Phase 0 — project foundation. See [`docs/roadmap.md`](docs/roadmap.md) for the
-full plan and what lands when.
+Phase 1 — an interactive shell that runs commands. It resolves programs through
+`PATH`, forks and executes them, reports exit status the way POSIX shells do,
+and implements `cd` and `exit` as builtins.
+
+```console
+$ cargo run -p rsh
+rsh> echo hello
+hello
+rsh> cd /usr
+rsh> pwd
+/usr
+rsh> nope
+rsh: nope: command not found
+rsh> echo hi | grep hi
+rsh: `|` is not supported yet (roadmap phase 4)
+  echo hi | grep hi
+          ^
+rsh> exit
+```
+
+Pipelines, redirection, expansion, signals, and job control are not implemented
+yet. Operators for them are recognised and refused with the phase that will
+deliver them, rather than passed through as ordinary arguments — a shell that
+quietly handed `>` to `echo` would be lying about what it does.
+
+See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 
 ## Principles
 
@@ -44,10 +68,18 @@ Requires Rust 1.85 or newer (see `rust-version` in `Cargo.toml`).
 ## Repository layout
 
 ```text
-crates/       the shell itself, split by concern
-docs/         architecture and systems notes
-experiments/  standalone programs, each answering one systems question
+crates/rsh            the REPL: read a line, dispatch it, loop
+crates/rsh-parser     text → AST; never touches the operating system
+crates/rsh-executor   builtins, dispatch, shell state
+crates/rsh-process    fork / exec / wait, PATH resolution — all the `unsafe`
+docs/                 architecture and systems notes
+experiments/          standalone programs, each answering one systems question
 ```
+
+The split is not decoration. `rsh-parser` produces structure from a string and
+can be tested exhaustively without spawning anything; `rsh-process` holds every
+`unsafe` block that touches the process table, so the argument for the
+fork/exec window fits in one file. See [Architecture](docs/architecture.md).
 
 `experiments/` is a deliberate part of the project rather than a scratch
 directory: each entry poses a single concrete question about Unix behaviour,

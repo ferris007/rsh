@@ -1,0 +1,270 @@
+//! `fork` + `exec`, and the window between them.
+//!
+//! Read `docs/process-model.md` before changing anything here. The short
+//! version: after `fork` returns `0`, the child holds a copy of the parent's
+//! address space but only one thread. Any lock another thread held at that
+//! instant — including the allocator's — is now held by a thread that does not
+//! exist, and will never be released. POSIX therefore allows only
+//! async-signal-safe calls between `fork` and `exec`.
+//!
+//! So the child here does three things and nothing else: `execv`, a `write` of
+//! a constant byte string, and `_exit`. All three are async-signal-safe. Every
+//! allocation, every fallible conversion, and every lookup happens in
+//! [`Command::new`], before the fork.
+
+use std::ffi::{CString, NulError};
+use std::fmt;
+use std::os::unix::ffi::OsStrExt;
+use std::path::Path;
+
+use nix::errno::Errno;
+use nix::libc;
+use nix::sys::wait::waitpid;
+use nix::unistd::{fork, ForkResult, Pid};
+
+use crate::status::{ExitStatus, EXIT_NOT_EXECUTABLE};
+
+/// Why a process could not be started, or its result collected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SpawnError {
+    /// A path or argument contained an interior NUL byte.
+    ///
+    /// C strings cannot represent one, so this can never reach `exec`. Rust
+    /// strings can hold it, which is why the conversion is fallible and why it
+    /// is done in the parent where it can still be reported.
+    InteriorNul { what: String },
+    /// `fork` failed — typically `EAGAIN` from a process or memory limit.
+    Fork(Errno),
+    /// `waitpid` failed.
+    Wait(Errno),
+}
+
+impl fmt::Display for SpawnError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::InteriorNul { what } => write!(f, "{what} contains a NUL byte"),
+            Self::Fork(e) => write!(f, "fork failed: {e}"),
+            Self::Wait(e) => write!(f, "wait failed: {e}"),
+        }
+    }
+}
+
+impl std::error::Error for SpawnError {}
+
+/// A program, prepared for execution.
+///
+/// Everything `exec` needs is built here, in the parent: the path as a C
+/// string, the arguments as C strings, and the NULL-terminated pointer array
+/// that `execv` actually reads. Constructing the pointer array in advance is
+/// the point of this type — `nix`'s safe `execv` wrapper builds it from a
+/// slice at call time, which allocates, and allocating in the child is the one
+/// thing the fork window forbids.
+#[derive(Debug)]
+pub struct Command {
+    /// The resolved path to execute.
+    path: CString,
+    /// Owns the bytes the pointers in `argv_ptrs` point at.
+    ///
+    /// Never mutated after construction. The pointers remain valid if this
+    /// struct moves — a `CString`'s bytes live on the heap, so moving the
+    /// `Vec` moves only its header — but they would dangle if an element were
+    /// replaced or the vector reallocated. There is no method that does either.
+    _argv: Vec<CString>,
+    /// `argv` as `exec` wants it: pointers, NULL-terminated.
+    argv_ptrs: Vec<*const libc::c_char>,
+}
+
+impl Command {
+    /// Prepare a resolved program path and its argument vector.
+    ///
+    /// `argv` must include the program name as its first element: that is what
+    /// `argv[0]` means to the program being run, and several programs
+    /// (`busybox`, `vi` vs `vim`) change behaviour based on it.
+    pub fn new<I, S>(path: &Path, argv: I) -> Result<Self, SpawnError>
+    where
+        I: IntoIterator<Item = S>,
+        S: AsRef<str>,
+    {
+        let path_c = CString::new(path.as_os_str().as_bytes()).map_err(|_: NulError| {
+            SpawnError::InteriorNul {
+                what: "program path".to_owned(),
+            }
+        })?;
+
+        let argv: Vec<CString> = argv
+            .into_iter()
+            .map(|arg| {
+                CString::new(arg.as_ref()).map_err(|_: NulError| SpawnError::InteriorNul {
+                    what: format!("argument `{}`", arg.as_ref().escape_debug()),
+                })
+            })
+            .collect::<Result<_, _>>()?;
+
+        let mut argv_ptrs: Vec<*const libc::c_char> = argv.iter().map(|a| a.as_ptr()).collect();
+        argv_ptrs.push(std::ptr::null());
+
+        Ok(Self {
+            path: path_c,
+            _argv: argv,
+            argv_ptrs,
+        })
+    }
+
+    /// Fork, and execute the program in the child.
+    ///
+    /// Returns in the parent with a handle to the new process. The child never
+    /// returns from this function: it either becomes the target program or
+    /// exits.
+    pub fn spawn(&self) -> Result<Child, SpawnError> {
+        // SAFETY: `fork` is unsafe because of what the child may do afterwards,
+        // not because of the call itself. The child branch below performs only
+        // async-signal-safe operations (`execv`, `write`, `_exit`) on data that
+        // was fully prepared before the fork, so it cannot deadlock on a lock
+        // held by a thread that did not survive into the child.
+        match unsafe { fork() } {
+            Ok(ForkResult::Parent { child }) => Ok(Child { pid: child }),
+
+            Ok(ForkResult::Child) => {
+                // ---- async-signal-safe territory begins here ----
+
+                // SAFETY: `path` and `argv_ptrs` were built before the fork and
+                // are still alive in this address-space copy. `argv_ptrs` is
+                // NULL-terminated, which is `execv`'s only requirement beyond
+                // validity. On success this call does not return.
+                unsafe { libc::execv(self.path.as_ptr(), self.argv_ptrs.as_ptr()) };
+
+                // `execv` only returns on failure. The path was already checked
+                // for existence and execute permission before the fork, so
+                // reaching here means something the parent could not see:
+                // ENOEXEC on a malformed binary, ETXTBSY, a missing loader.
+                const FAILED: &[u8] = b"rsh: exec failed\n";
+
+                // SAFETY: `write(2)` is async-signal-safe. The buffer is a
+                // 'static byte string, valid for the whole program.
+                let _ = unsafe { libc::write(2, FAILED.as_ptr().cast(), FAILED.len()) };
+
+                // SAFETY: `_exit` is async-signal-safe and terminates
+                // immediately. `exit` would not do: it runs `atexit` handlers
+                // and flushes the stdio buffers this child inherited from the
+                // parent, duplicating output the parent has queued but not yet
+                // written.
+                unsafe { libc::_exit(EXIT_NOT_EXECUTABLE) }
+            }
+
+            Err(errno) => Err(SpawnError::Fork(errno)),
+        }
+    }
+}
+
+/// A running child process.
+#[derive(Debug)]
+pub struct Child {
+    pid: Pid,
+}
+
+impl Child {
+    /// The child's process id.
+    pub fn pid(&self) -> Pid {
+        self.pid
+    }
+
+    /// Block until the child terminates, then reap it.
+    ///
+    /// Consumes the handle: a pid is only meaningful until it is reaped, after
+    /// which the kernel is free to reuse the number. Taking `self` by value
+    /// makes "waiting twice" — and with it a whole family of bugs where a
+    /// shell signals a pid that now belongs to something else — a compile
+    /// error rather than a race.
+    pub fn wait(self) -> Result<ExitStatus, SpawnError> {
+        loop {
+            match waitpid(self.pid, None) {
+                Ok(status) => match ExitStatus::from_wait(status) {
+                    Some(status) => return Ok(status),
+                    // Not a termination (a Phase 6 job-control event). The
+                    // child is still alive, so keep waiting for its real end.
+                    None => continue,
+                },
+                // A signal arrived while we were blocked. That is expected in
+                // an interactive shell — it is what SIGCHLD and, later,
+                // SIGWINCH look like from here — and it is not an error.
+                Err(Errno::EINTR) => continue,
+                Err(errno) => return Err(SpawnError::Wait(errno)),
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use nix::sys::signal::Signal;
+    use std::path::PathBuf;
+
+    /// `/bin/sh` is guaranteed by POSIX to exist at that path.
+    fn sh() -> PathBuf {
+        PathBuf::from("/bin/sh")
+    }
+
+    fn run_sh(script: &str) -> ExitStatus {
+        Command::new(&sh(), ["sh", "-c", script])
+            .expect("failed to prepare command")
+            .spawn()
+            .expect("failed to fork")
+            .wait()
+            .expect("failed to wait")
+    }
+
+    // Note: the test harness is multi-threaded, so these tests fork from a
+    // process with several live threads — precisely the situation the child
+    // path is written to survive.
+
+    #[test]
+    fn a_child_that_exits_zero_reports_success() {
+        assert_eq!(run_sh("exit 0"), ExitStatus::Exited(0));
+    }
+
+    #[test]
+    fn a_child_exit_code_is_preserved() {
+        assert_eq!(run_sh("exit 7"), ExitStatus::Exited(7));
+    }
+
+    #[test]
+    fn a_child_killed_by_a_signal_is_reported_as_signaled() {
+        let status = run_sh("kill -TERM $$");
+        assert_eq!(status, ExitStatus::Signaled(Signal::SIGTERM));
+        assert_eq!(status.code(), 143);
+    }
+
+    #[test]
+    fn arguments_reach_the_program() {
+        // `[ ... ]` exits 0 only if the arguments arrived intact and in order.
+        assert_eq!(run_sh(r#"[ "$0" = sh ] || exit 1"#), ExitStatus::Exited(0));
+        let status = Command::new(&sh(), ["sh", "-c", r#"[ "$1" = "a b" ]"#, "sh", "a b"])
+            .unwrap()
+            .spawn()
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(status, ExitStatus::Exited(0));
+    }
+
+    #[test]
+    fn exec_failure_in_the_child_is_reported_as_not_executable() {
+        // A file that exists and is readable but is not a valid program: exec
+        // fails with ENOEXEC *after* the fork, which is the case the child's
+        // fallback path exists for.
+        let status = Command::new(Path::new("/etc/hosts"), ["hosts"])
+            .unwrap()
+            .spawn()
+            .unwrap()
+            .wait()
+            .unwrap();
+        assert_eq!(status, ExitStatus::Exited(EXIT_NOT_EXECUTABLE));
+    }
+
+    #[test]
+    fn interior_nul_is_rejected_before_forking() {
+        let err = Command::new(&sh(), ["sh", "-c", "ex\0it"]).unwrap_err();
+        assert!(matches!(err, SpawnError::InteriorNul { .. }));
+    }
+}
