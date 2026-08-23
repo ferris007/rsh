@@ -21,8 +21,8 @@ has to manage correctly while a user is watching.
                  └────────────┬─────────────┘
                               │  AST
                  ┌────────────▼─────────────┐
-                 │  rsh-executor            │  builtins, redirection, pipeline
-                 └────────────┬─────────────┘   assembly, shell state
+                 │  rsh-executor            │  expansion, builtins, redirection,
+                 └────────────┬─────────────┘   pipeline assembly, shell state
                               │  "run this program with these fds"
                  ┌────────────▼─────────────┐
                  │  rsh-process             │  fork / exec / wait, PATH lookup
@@ -50,8 +50,17 @@ from a string and can be tested exhaustively without spawning anything. A
 parser that resolved `$PATH` or opened files would be untestable in the way
 that matters.
 
-**Execution never re-parses.** `rsh-executor` receives structure, not text. If
-the executor needs to inspect source characters, the AST is missing something.
+**Execution never re-parses.** `rsh-executor` receives structure, not text. It
+reads the source line for exactly one purpose — printing a caret under an error
+— and the spans in the tree tell it which characters to underline, never what
+they mean.
+
+**Expansion is execution, not parsing.** `$HOME` is *recognised* by the lexer
+and *resolved* by the executor. The split falls out of the first rule: reading
+a variable is reading process state. Keeping it on the executor's side of the
+line means the syntax of expansion is tested with no environment at all, and its
+semantics are tested against a fake one — neither test needs a real process.
+See [`parsing.md`](parsing.md).
 
 **`rsh-process` owns every `unsafe` block that talks to the process table.**
 `fork` and `exec` are the two calls whose *contract* is unsafe — not because

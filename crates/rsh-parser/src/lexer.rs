@@ -1,287 +1,430 @@
-//! Splitting a line into words.
+//! Characters to tokens.
 //!
-//! Phase 2 replaces this with a real lexer that emits tokens and performs
-//! expansion. What is here now is the smallest thing that is not a lie: it
-//! honours quoting and escaping, so words mean what the user meant, and it
-//! refuses operators instead of swallowing them.
-
-use std::iter::Peekable;
-use std::str::CharIndices;
+//! The lexer does quote removal, escape processing, and the *recognition* of
+//! parameter references — but never their evaluation. `$HOME` becomes a
+//! [`WordPart::Parameter`], not a path. Reading the environment is the
+//! executor's job; see [`crate::word`] for why the split is here.
 
 use crate::error::ParseError;
+use crate::span::Span;
+use crate::token::{Token, TokenKind};
+use crate::word::{Parameter, Word, WordPart};
 
-type Chars<'a> = Peekable<CharIndices<'a>>;
+/// Split a line into tokens.
+pub(crate) fn tokenize(input: &str) -> Result<Vec<Token>, ParseError> {
+    Lexer::new(input).run()
+}
 
-/// Split input into words, honouring quotes, escapes, and comments.
-pub(crate) fn split(input: &str) -> Result<Vec<String>, ParseError> {
-    let mut words = Vec::new();
-    let mut word = String::new();
-    // Tracked separately from `word.is_empty()`: `echo ""` produces a word
-    // that is empty but real, and dropping it would change the command.
-    let mut in_word = false;
-    let mut chars = input.char_indices().peekable();
+struct Lexer<'a> {
+    source: &'a str,
+    /// Every character with its byte offset, so the lexer can look ahead
+    /// freely without re-walking the string.
+    chars: Vec<(usize, char)>,
+    /// Index into `chars`, not a byte offset.
+    pos: usize,
+}
 
-    while let Some((i, c)) = chars.next() {
-        match c {
-            c if c.is_whitespace() => {
-                if in_word {
-                    words.push(std::mem::take(&mut word));
-                    in_word = false;
-                }
+impl<'a> Lexer<'a> {
+    fn new(source: &'a str) -> Self {
+        Self {
+            source,
+            chars: source.char_indices().collect(),
+            pos: 0,
+        }
+    }
+
+    // ---- cursor ------------------------------------------------------------
+
+    fn peek(&self) -> Option<char> {
+        self.peek_nth(0)
+    }
+
+    fn peek_nth(&self, n: usize) -> Option<char> {
+        self.chars.get(self.pos + n).map(|&(_, c)| c)
+    }
+
+    /// Byte offset of the cursor, or the end of input.
+    fn offset(&self) -> usize {
+        self.chars
+            .get(self.pos)
+            .map_or(self.source.len(), |&(i, _)| i)
+    }
+
+    fn bump(&mut self) -> Option<char> {
+        let c = self.peek()?;
+        self.pos += 1;
+        Some(c)
+    }
+
+    fn eat(&mut self, expected: char) -> bool {
+        if self.peek() == Some(expected) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    // ---- driver ------------------------------------------------------------
+
+    fn run(mut self) -> Result<Vec<Token>, ParseError> {
+        let mut tokens = Vec::new();
+
+        loop {
+            while self.peek().is_some_and(|c| c.is_whitespace()) {
+                self.pos += 1;
             }
 
-            // A `#` only starts a comment at the beginning of a word, which is
-            // why `curl example.com/#anchor` keeps its fragment.
-            '#' if !in_word => break,
-
-            '\'' => {
-                in_word = true;
-                single_quoted(&mut chars, &mut word, i)?;
+            match self.peek() {
+                None => break,
+                // A `#` at the start of a token comments out the rest of the
+                // line. Inside a word it is ordinary text, which is why
+                // `curl example.com/#anchor` keeps its fragment.
+                Some('#') => break,
+                Some(c) if is_operator_start(c) => tokens.push(self.operator()?),
+                Some(_) => tokens.push(self.word()?),
             }
+        }
 
-            '"' => {
-                in_word = true;
-                double_quoted(&mut chars, &mut word, i)?;
-            }
+        Ok(tokens)
+    }
 
-            '\\' => match chars.next() {
-                Some((_, escaped)) => {
-                    in_word = true;
-                    word.push(escaped);
-                }
-                // The escaped character is the newline, i.e. a request to
-                // continue on the next line. `rsh` cannot read one yet.
-                None => return Err(ParseError::TrailingBackslash { at: i }),
-            },
+    // ---- operators ---------------------------------------------------------
 
-            c if is_operator_start(c) => {
-                let token = operator(&mut chars, c);
+    fn operator(&mut self) -> Result<Token, ParseError> {
+        let start = self.offset();
+        let first = self.bump().expect("operator() called at end of input");
+
+        let kind = match first {
+            '|' if self.eat('|') => TokenKind::OrIf,
+            '|' => TokenKind::Pipe,
+            '&' if self.eat('&') => TokenKind::AndIf,
+            '&' => TokenKind::Amp,
+            ';' => TokenKind::Semi,
+            '<' if self.eat('<') => TokenKind::DLess,
+            '<' if self.eat('&') => TokenKind::LessAnd,
+            '<' => TokenKind::Less,
+            '>' if self.eat('>') => TokenKind::DGreat,
+            '>' if self.eat('&') => TokenKind::GreatAnd,
+            '>' => TokenKind::Great,
+            // Subshells and command grouping. Recognised so they cannot be
+            // mistaken for part of a word, but not on the roadmap yet.
+            '(' | ')' => {
                 return Err(ParseError::Unsupported {
-                    phase: phase_for(&token),
-                    token,
-                    at: i,
+                    token: first.to_string(),
+                    phase: None,
+                    span: Span::new(start, self.offset()),
+                })
+            }
+            other => unreachable!("`{other}` is not an operator"),
+        };
+
+        Ok(Token::new(kind, Span::new(start, self.offset())))
+    }
+
+    // ---- words -------------------------------------------------------------
+
+    fn word(&mut self) -> Result<Token, ParseError> {
+        let start = self.offset();
+        let mut parts: Vec<WordPart> = Vec::new();
+        let mut literal = String::new();
+        // Recorded because a file descriptor number must be *unquoted* digits:
+        // `2>f` redirects stderr, `"2">f` writes the word `2` to a file.
+        let mut had_quotes = false;
+
+        while let Some(c) = self.peek() {
+            if c.is_whitespace() || is_operator_start(c) {
+                break;
+            }
+
+            match c {
+                '\'' => {
+                    had_quotes = true;
+                    self.single_quoted(&mut literal)?;
+                }
+
+                '"' => {
+                    had_quotes = true;
+                    self.double_quoted(&mut parts, &mut literal)?;
+                }
+
+                '\\' => {
+                    had_quotes = true;
+                    let at = self.offset();
+                    self.pos += 1;
+                    match self.bump() {
+                        Some(escaped) => literal.push(escaped),
+                        // The escaped character is the newline: a request to
+                        // continue on the next line, which needs multi-line
+                        // input the shell does not have.
+                        None => {
+                            return Err(ParseError::TrailingBackslash {
+                                span: Span::new(at, self.source.len()),
+                            })
+                        }
+                    }
+                }
+
+                '$' => {
+                    if let Some(part) = self.parameter(false)? {
+                        if !literal.is_empty() {
+                            parts.push(WordPart::Literal(std::mem::take(&mut literal)));
+                        }
+                        parts.push(part);
+                    } else {
+                        literal.push('$');
+                    }
+                }
+
+                '`' => {
+                    let at = self.offset();
+                    return Err(ParseError::Unsupported {
+                        token: "`".to_owned(),
+                        phase: None,
+                        span: Span::new(at, at + 1),
+                    });
+                }
+
+                // A tilde only means "home" at the very start of an unquoted
+                // word, and only when the word ends there or continues with a
+                // `/`. Everywhere else it is an ordinary character, which is
+                // why `echo a~b` prints `a~b`.
+                '~' if parts.is_empty() && literal.is_empty() && !had_quotes => {
+                    self.pos += 1;
+                    if self
+                        .peek()
+                        .is_none_or(|c| c == '/' || c.is_whitespace() || is_operator_start(c))
+                    {
+                        parts.push(WordPart::Tilde);
+                    } else {
+                        literal.push('~');
+                    }
+                }
+
+                _ => {
+                    literal.push(c);
+                    self.pos += 1;
+                }
+            }
+        }
+
+        // An empty word is still a word: `echo ""` passes one empty argument.
+        // Nothing else can represent that, since a word with no parts is
+        // indistinguishable from no word at all.
+        if !literal.is_empty() || parts.is_empty() {
+            parts.push(WordPart::Literal(literal));
+        }
+
+        let span = Span::new(start, self.offset());
+
+        // POSIX: digits immediately followed by a redirection operator are a
+        // file descriptor, not an argument. "Immediately" is doing real work
+        // here — `echo 2 > f` and `echo 2> f` mean different things.
+        if !had_quotes && self.peek().is_some_and(|c| c == '<' || c == '>') {
+            if let [WordPart::Literal(text)] = parts.as_slice() {
+                if !text.is_empty() && text.bytes().all(|b| b.is_ascii_digit()) {
+                    if let Ok(fd) = text.parse::<i32>() {
+                        return Ok(Token::new(TokenKind::IoNumber(fd), span));
+                    }
+                }
+            }
+        }
+
+        Ok(Token::new(
+            TokenKind::Word(Word::new(parts, span, had_quotes)),
+            span,
+        ))
+    }
+
+    /// Consume a single-quoted string. Nothing inside is special, not even `\`.
+    fn single_quoted(&mut self, literal: &mut String) -> Result<(), ParseError> {
+        let open = self.offset();
+        self.pos += 1;
+
+        while let Some(c) = self.bump() {
+            if c == '\'' {
+                return Ok(());
+            }
+            literal.push(c);
+        }
+
+        Err(ParseError::UnterminatedQuote {
+            quote: '\'',
+            span: Span::new(open, open + 1),
+        })
+    }
+
+    /// Consume a double-quoted string, which still expands parameters.
+    fn double_quoted(
+        &mut self,
+        parts: &mut Vec<WordPart>,
+        literal: &mut String,
+    ) -> Result<(), ParseError> {
+        let open = self.offset();
+        self.pos += 1;
+
+        while let Some(c) = self.peek() {
+            match c {
+                '"' => {
+                    self.pos += 1;
+                    return Ok(());
+                }
+
+                // Inside double quotes a backslash escapes only the characters
+                // that are still special there. Anywhere else it stays a
+                // literal backslash, which is why `"C:\path"` survives intact.
+                '\\' => {
+                    let at = self.offset();
+                    self.pos += 1;
+                    match self.peek() {
+                        Some(next) if matches!(next, '"' | '\\' | '$' | '`') => {
+                            literal.push(next);
+                            self.pos += 1;
+                        }
+                        Some(_) => literal.push('\\'),
+                        None => {
+                            return Err(ParseError::TrailingBackslash {
+                                span: Span::new(at, self.source.len()),
+                            })
+                        }
+                    }
+                }
+
+                '$' => {
+                    if let Some(part) = self.parameter(true)? {
+                        if !literal.is_empty() {
+                            parts.push(WordPart::Literal(std::mem::take(literal)));
+                        }
+                        parts.push(part);
+                    } else {
+                        literal.push('$');
+                    }
+                }
+
+                '`' => {
+                    let at = self.offset();
+                    return Err(ParseError::Unsupported {
+                        token: "`".to_owned(),
+                        phase: None,
+                        span: Span::new(at, at + 1),
+                    });
+                }
+
+                _ => {
+                    literal.push(c);
+                    self.pos += 1;
+                }
+            }
+        }
+
+        Err(ParseError::UnterminatedQuote {
+            quote: '"',
+            span: Span::new(open, open + 1),
+        })
+    }
+
+    /// Read a parameter reference starting at `$`.
+    ///
+    /// Returns `Ok(None)` when the `$` is not introducing anything — a bare `$`
+    /// at the end of a word, or before a character that cannot start a name.
+    /// Every shell treats that as an ordinary dollar sign.
+    fn parameter(&mut self, quoted: bool) -> Result<Option<WordPart>, ParseError> {
+        let start = self.offset();
+        self.pos += 1; // the `$`
+
+        let param = match self.peek() {
+            Some('{') => return self.braced_parameter(start, quoted).map(Some),
+            Some('?') => {
+                self.pos += 1;
+                Parameter::Status
+            }
+            Some('$') => {
+                self.pos += 1;
+                Parameter::Pid
+            }
+            Some('(') => {
+                return Err(ParseError::Unsupported {
+                    token: "$(".to_owned(),
+                    phase: None,
+                    span: Span::new(start, start + 2),
+                })
+            }
+            Some(c) if c.is_ascii_digit() => {
+                self.pos += 1;
+                return Err(ParseError::UnsupportedParameter {
+                    text: format!("${c}"),
+                    reason: "positional parameters are not supported",
+                    span: Span::new(start, self.offset()),
                 });
             }
+            Some(c) if is_name_start(c) => Parameter::Named(self.name()),
+            _ => return Ok(None),
+        };
 
-            c => {
-                in_word = true;
-                word.push(c);
+        Ok(Some(WordPart::Parameter { param, quoted }))
+    }
+
+    /// Read `${...}`.
+    fn braced_parameter(&mut self, start: usize, quoted: bool) -> Result<WordPart, ParseError> {
+        self.pos += 1; // the `{`
+
+        let body_start = self.offset();
+        while self.peek().is_some_and(|c| c != '}') {
+            self.pos += 1;
+        }
+
+        if self.peek().is_none() {
+            return Err(ParseError::UnterminatedBrace {
+                span: Span::new(start, start + 2),
+            });
+        }
+
+        let body = self.source[body_start..self.offset()].to_owned();
+        self.pos += 1; // the `}`
+        let span = Span::new(start, self.offset());
+
+        let param = match body.as_str() {
+            "?" => Parameter::Status,
+            "$" => Parameter::Pid,
+            name if is_name(name) => Parameter::Named(name.to_owned()),
+            // `${X:-default}`, `${#X}`, `${X%.c}` and friends. The user wrote
+            // something real; it is `rsh` that is incomplete, so the message
+            // says so rather than calling it a syntax error.
+            _ => {
+                return Err(ParseError::UnsupportedParameter {
+                    text: format!("${{{body}}}"),
+                    reason: "only plain `${name}` is supported so far",
+                    span,
+                })
             }
-        }
+        };
+
+        Ok(WordPart::Parameter { param, quoted })
     }
 
-    if in_word {
-        words.push(word);
+    /// Read a bare variable name.
+    fn name(&mut self) -> String {
+        let start = self.offset();
+        while self.peek().is_some_and(is_name_continue) {
+            self.pos += 1;
+        }
+        self.source[start..self.offset()].to_owned()
     }
-    Ok(words)
 }
 
-/// Consume a single-quoted string. Nothing inside is special — not even `\`.
-fn single_quoted(chars: &mut Chars<'_>, word: &mut String, open: usize) -> Result<(), ParseError> {
-    for (_, c) in chars.by_ref() {
-        if c == '\'' {
-            return Ok(());
-        }
-        word.push(c);
-    }
-    Err(ParseError::UnterminatedQuote {
-        quote: '\'',
-        at: open,
-    })
-}
-
-/// Consume a double-quoted string.
-///
-/// Inside double quotes a backslash is only an escape before the characters
-/// that are still special there; anywhere else it is a literal backslash. That
-/// is why `"C:\path"` survives intact in a POSIX shell while `"\$HOME"` does
-/// not print the backslash.
-fn double_quoted(chars: &mut Chars<'_>, word: &mut String, open: usize) -> Result<(), ParseError> {
-    while let Some((i, c)) = chars.next() {
-        match c {
-            '"' => return Ok(()),
-            '\\' => match chars.peek() {
-                Some(&(_, next)) if matches!(next, '"' | '\\' | '$' | '`') => {
-                    word.push(next);
-                    chars.next();
-                }
-                Some(_) => word.push('\\'),
-                None => return Err(ParseError::TrailingBackslash { at: i }),
-            },
-            c => word.push(c),
-        }
-    }
-    Err(ParseError::UnterminatedQuote {
-        quote: '"',
-        at: open,
-    })
-}
-
-/// Characters that begin a shell operator rather than a word.
 fn is_operator_start(c: char) -> bool {
     matches!(c, '|' | '&' | ';' | '<' | '>' | '(' | ')')
 }
 
-/// Read a full operator, so the error can name `>>` rather than just `>`.
-fn operator(chars: &mut Chars<'_>, first: char) -> String {
-    let doubled = matches!(first, '|' | '&' | ';' | '<' | '>');
-    if doubled {
-        if let Some(&(_, next)) = chars.peek() {
-            if next == first {
-                chars.next();
-                return format!("{first}{first}");
-            }
-        }
-    }
-    first.to_string()
+fn is_name_start(c: char) -> bool {
+    c == '_' || c.is_ascii_alphabetic()
 }
 
-/// The roadmap phase that will make an operator work.
-///
-/// Pointing at the phase turns "unsupported" into "not yet, and here is where
-/// to look" — useful when the shell's own README is the spec.
-fn phase_for(token: &str) -> u8 {
-    match token {
-        "<" | "<<" | ">" | ">>" => 3,
-        "|" | "||" | "&&" => 4,
-        "&" => 6,
-        _ => 2,
-    }
+fn is_name_continue(c: char) -> bool {
+    c == '_' || c.is_ascii_alphanumeric()
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn words(input: &str) -> Vec<String> {
-        split(input).expect("expected input to lex")
-    }
-
-    #[test]
-    fn splits_on_runs_of_whitespace() {
-        assert_eq!(
-            words("  echo   hello \tworld  "),
-            ["echo", "hello", "world"]
-        );
-    }
-
-    #[test]
-    fn blank_input_yields_no_words() {
-        assert!(words("").is_empty());
-        assert!(words("   \t ").is_empty());
-    }
-
-    #[test]
-    fn quotes_group_words() {
-        assert_eq!(words(r#"echo "hello world""#), ["echo", "hello world"]);
-        assert_eq!(words("echo 'hello world'"), ["echo", "hello world"]);
-    }
-
-    #[test]
-    fn quotes_can_be_empty_and_still_count_as_arguments() {
-        assert_eq!(words(r#"echo "" x"#), ["echo", "", "x"]);
-    }
-
-    #[test]
-    fn quotes_can_open_and_close_mid_word() {
-        assert_eq!(words(r#"echo a"b c"d"#), ["echo", "ab cd"]);
-        assert_eq!(words("echo pre'fix'post"), ["echo", "prefixpost"]);
-    }
-
-    #[test]
-    fn single_quotes_are_fully_literal() {
-        assert_eq!(words(r#"echo '\n $HOME "x"'"#), ["echo", r#"\n $HOME "x""#]);
-    }
-
-    #[test]
-    fn backslash_escapes_outside_quotes() {
-        assert_eq!(words(r"echo hello\ world"), ["echo", "hello world"]);
-        assert_eq!(words(r"echo \$HOME"), ["echo", "$HOME"]);
-        assert_eq!(words(r"echo \>"), ["echo", ">"]);
-    }
-
-    #[test]
-    fn backslash_inside_double_quotes_is_selective() {
-        assert_eq!(words(r#"echo "a\$b""#), ["echo", "a$b"]);
-        assert_eq!(words(r#"echo "a\"b""#), ["echo", r#"a"b"#]);
-        // Not a special character there, so the backslash survives.
-        assert_eq!(words(r#"echo "C:\path""#), ["echo", r"C:\path"]);
-    }
-
-    #[test]
-    fn expansion_has_not_happened_yet() {
-        // Phase 2 changes this. Asserting the current behaviour keeps the
-        // change visible when it lands rather than silent.
-        assert_eq!(words("echo $HOME"), ["echo", "$HOME"]);
-    }
-
-    #[test]
-    fn comments_run_to_end_of_line() {
-        assert_eq!(words("echo hi # a comment"), ["echo", "hi"]);
-        assert!(words("# whole line").is_empty());
-        assert_eq!(words("echo a#b"), ["echo", "a#b"]);
-        assert_eq!(words(r##"echo "# quoted""##), ["echo", "# quoted"]);
-    }
-
-    #[test]
-    fn unterminated_quotes_report_where_they_opened() {
-        assert_eq!(
-            split(r#"echo "oops"#),
-            Err(ParseError::UnterminatedQuote { quote: '"', at: 5 })
-        );
-        assert_eq!(
-            split("echo 'oops"),
-            Err(ParseError::UnterminatedQuote { quote: '\'', at: 5 })
-        );
-    }
-
-    #[test]
-    fn trailing_backslash_is_a_line_continuation_we_cannot_honour() {
-        assert_eq!(
-            split(r"echo \"),
-            Err(ParseError::TrailingBackslash { at: 5 })
-        );
-    }
-
-    #[test]
-    fn operators_are_refused_with_the_phase_that_implements_them() {
-        assert_eq!(
-            split("echo hi | grep hi"),
-            Err(ParseError::Unsupported {
-                token: "|".into(),
-                phase: 4,
-                at: 8
-            })
-        );
-        assert_eq!(
-            split("echo hi > out"),
-            Err(ParseError::Unsupported {
-                token: ">".into(),
-                phase: 3,
-                at: 8
-            })
-        );
-        assert_eq!(
-            split("echo hi >> out"),
-            Err(ParseError::Unsupported {
-                token: ">>".into(),
-                phase: 3,
-                at: 8
-            })
-        );
-        assert_eq!(
-            split("sleep 1 &"),
-            Err(ParseError::Unsupported {
-                token: "&".into(),
-                phase: 6,
-                at: 8
-            })
-        );
-    }
-
-    #[test]
-    fn quoted_operators_are_ordinary_text() {
-        assert_eq!(words(r#"echo "a | b""#), ["echo", "a | b"]);
-        assert_eq!(words("echo '>'"), ["echo", ">"]);
-    }
+fn is_name(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars.next().is_some_and(is_name_start) && chars.all(is_name_continue)
 }
