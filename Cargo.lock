@@ -63,3 +63,10 @@ version = "0.1.0"
 dependencies = [
  "nix",
 ]
+
+[[package]]
+name = "xp-fork-exec"
+version = "0.1.0"
+dependencies = [
+ "nix",
+]
