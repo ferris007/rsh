@@ -1,0 +1,90 @@
+# Architecture
+
+## The shape of the problem
+
+A shell is a small program with an unusually large surface against the
+operating system. Almost none of its difficulty is in the language it parses;
+nearly all of it is in the process, descriptor, signal, and terminal state it
+has to manage correctly while a user is watching.
+
+`rsh` is therefore structured around that state, not around the grammar.
+
+## Layers
+
+```text
+                 ┌──────────────────────────┐
+   user input →  │  rsh (binary)            │  REPL, line editing, prompt
+                 └────────────┬─────────────┘
+                              │  source text
+                 ┌────────────▼─────────────┐
+                 │  rsh-parser              │  lexer → AST
+                 └────────────┬─────────────┘
+                              │  AST
+                 ┌────────────▼─────────────┐
+                 │  rsh-executor            │  builtins, redirection, pipeline
+                 └────────────┬─────────────┘   assembly, shell state
+                              │  "run this program with these fds"
+                 ┌────────────▼─────────────┐
+                 │  rsh-process             │  fork / exec / wait, PATH lookup
+                 └────────────┬─────────────┘
+                              │
+                 ┌────────────▼─────────────┐
+                 │  kernel                  │
+                 └──────────────────────────┘
+```
+
+Two crates join later, cutting across the stack rather than sitting in it:
+
+- `rsh-job` — the job table, process groups, foreground/background transitions
+  (Phase 6).
+- `rsh-terminal` — terminal modes, `tcsetpgrp`, resize, PTYs (Phase 7).
+
+They are separate because job control and terminal ownership are *not* a step
+in the pipeline from text to process. They are long-lived state that both the
+REPL and the executor consult.
+
+## Rules the layering enforces
+
+**Parsing never touches the operating system.** `rsh-parser` produces an AST
+from a string and can be tested exhaustively without spawning anything. A
+parser that resolved `$PATH` or opened files would be untestable in the way
+that matters.
+
+**Execution never re-parses.** `rsh-executor` receives structure, not text. If
+the executor needs to inspect source characters, the AST is missing something.
+
+**`rsh-process` owns every `unsafe` block that talks to the process table.**
+`fork` and `exec` are the two calls whose *contract* is unsafe — not because
+they might segfault, but because the window between them runs in a child
+process where most of the language's assumptions have quietly stopped holding.
+Concentrating them in one crate means the audit surface is one file, not the
+whole shell.
+
+## The dangerous window
+
+Between `fork()` returning `0` and `execvp()` replacing the image, the child
+may only call async-signal-safe functions. It has a copy of the parent's
+address space, but any lock held by another thread at fork time is now held
+forever by a thread that does not exist in the child.
+
+`rsh` handles this by doing all fallible, allocating work — `PATH` resolution,
+building the `argv` array of C strings — **before** the fork. The child's job
+is reduced to `execvp` and, if that fails, `_exit`. It allocates nothing.
+
+This is the single most important invariant in the codebase, and it is why
+`rsh-process` exists as its own crate. See
+[`docs/process-model.md`](process-model.md) for the details.
+
+## Dependencies
+
+`rsh` deliberately carries very few. The one that matters is [`nix`], a thin
+wrapper over `libc` that adds Rust types (`Pid`, `WaitStatus`, `OwnedFd`)
+without adding a runtime or a policy of its own.
+
+This is not a contradiction of "systems first". Writing `libc::waitpid` by hand
+does not teach anything `nix::sys::wait::waitpid` hides — the syscall semantics
+are identical, and the only difference is who converts the `c_int` into a
+`WaitStatus`. What `nix` does *not* do is spawn processes, manage jobs, or own
+the terminal; that is exactly the work this project is here to write.
+
+[`nix`]: https://docs.rs/nix

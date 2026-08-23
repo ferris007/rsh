@@ -1,0 +1,29 @@
+[workspace]
+resolver = "2"
+members = ["crates/rsh"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/ferris007/rsh"
+authors = ["rsh contributors"]
+
+[workspace.dependencies]
+# Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
+# `unsafe` in this project is limited to the places where the *semantics* are
+# genuinely unsafe (fork, exec), not to every syscall.
+nix = { version = "0.31", default-features = false }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+undocumented_unsafe_blocks = "deny"
+# Systems code below the shell surface returns raw ints on purpose.
+cast_possible_truncation = "allow"
+
+[profile.release]
+debug = 1        # keep frame pointers/symbols for flamegraphs (Phase 10)
