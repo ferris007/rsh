@@ -60,6 +60,11 @@ The child allocates nothing. It also uses `_exit`, not `exit` — the latter
 runs `atexit` handlers and flushes the parent's inherited stdio buffers, which
 would duplicate output the parent has already queued but not yet written.
 
+The `_exit` half of that is demonstrated, not just asserted:
+[`experiments/fork_exec`](../experiments/fork_exec/) forks a child that writes
+nothing, has it terminate both ways, and counts how many times the parent's
+buffered output reaches the terminal.
+
 This is why `rsh-process` is a separate crate: the invariant is auditable
 because the code that must uphold it is small and lives in one place. Later
 phases (redirection, process groups) add work to the window, and every

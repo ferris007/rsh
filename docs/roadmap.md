@@ -246,9 +246,12 @@ memory        3.7 MB
 Each experiment answers one concrete systems question with a runnable program
 and a recorded observation.
 
+See [`experiments/README.md`](../experiments/README.md) for the format and the
+index of what exists so far.
+
 ```text
 experiments/
-├── fork_exec/
+├── fork_exec/          done — why the child must _exit, not exit
 ├── process_groups/
 ├── signals/
 ├── pipes/

@@ -5,6 +5,7 @@ members = [
     "crates/rsh-parser",
     "crates/rsh-process",
     "crates/rsh-executor",
+    "experiments/fork_exec",
 ]
 
 [workspace.package]
