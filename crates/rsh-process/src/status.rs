@@ -161,6 +161,9 @@ pub fn collect_child_events() -> Vec<ChildEvent> {
             }
             Ok(WaitStatus::Stopped(pid, signal)) => events.push(ChildEvent::Stopped(pid, signal)),
             Ok(WaitStatus::Continued(pid)) => events.push(ChildEvent::Continued(pid)),
+            // Linux adds ptrace variants that macOS does not have, so this arm
+            // is load-bearing on one platform and unreachable on the other.
+            #[allow(unreachable_patterns)]
             Ok(_) => continue,
             // No children at all, which is the ordinary state of an idle shell.
             Err(Errno::ECHILD) => break,
@@ -193,6 +196,9 @@ pub fn collect_child_events_blocking() -> Vec<ChildEvent> {
             }
             Ok(WaitStatus::Stopped(pid, signal)) => return vec![ChildEvent::Stopped(pid, signal)],
             Ok(WaitStatus::Continued(pid)) => return vec![ChildEvent::Continued(pid)],
+            // `StillAlive` cannot happen without WNOHANG, and Linux adds
+            // ptrace variants macOS does not have. Either way, nothing here is
+            // news about a job.
             Ok(_) => continue,
             Err(Errno::ECHILD) => return Vec::new(),
             Err(Errno::EINTR) => continue,
