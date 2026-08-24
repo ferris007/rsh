@@ -16,8 +16,9 @@ Unix actually works**.
 
 ## Status
 
-Phase 8 — the interactive layer. History that persists, arrow-key navigation,
-Tab completion, and suggestions when a command is mistyped.
+Phase 9 — an event loop. The shell waits on standard input and signals together
+rather than blocking on one at a time, over `epoll` on Linux and `kqueue` on
+BSD and macOS.
 
 ```console
 $ cargo run -p rsh
@@ -30,19 +31,23 @@ rsh: grepp: command not found
       did you mean `grep`?
 rsh> sleep 30 &
 [1] 4242
-rsh> stty -echo                  # a job wrecks the terminal
-rsh> echo still fine             # ...and the shell has already fixed it
-still fine
 rsh> exit
 ```
 
-Up on a half-typed line searches for commands starting with it, so typing
-`git ` and pressing Up finds the last `git` command rather than the last
-command.
+Nothing there is new — this phase changed the architecture, not the behaviour.
+What it did change: dragging the window while typing now redraws the line at its
+new width, and `COLUMNS` is right for the command being typed rather than the
+one after it.
 
-The event-driven execution model and the benchmark suite are still ahead.
-Syntax the shell cannot run yet is parsed, refused by name, and pointed at —
-never silently treated as an argument.
+`rsh-event` is about two hundred lines and is a very small [`mio`], the layer
+Tokio is built on. That is the point of the phase: an async runtime is a
+scheduler above this line, and below it is a poller saying which descriptors are
+ready.
+
+[`mio`]: https://docs.rs/mio
+
+Benchmarks and observability are what remain. Syntax the shell cannot run yet is
+parsed, refused by name, and pointed at — never silently treated as an argument.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 
@@ -79,6 +84,7 @@ crates/rsh-executor   expansion, builtins, dispatch, shell state
 crates/rsh-job        the job table and process-group bookkeeping
 crates/rsh-terminal   terminal modes, size, and ownership
 crates/rsh-line       line editing, history, and completion
+crates/rsh-event      readiness notification over epoll and kqueue
 crates/rsh-process    fork / exec / wait, PATH resolution — all the `unsafe`
 docs/                 architecture and systems notes
 experiments/          standalone programs, each answering one systems question

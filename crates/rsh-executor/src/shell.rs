@@ -91,8 +91,8 @@ impl Shell {
     /// Called at startup and after every `SIGWINCH`. The handler itself only
     /// sets a flag: `ioctl` is not something a signal handler may call, and
     /// there is no hurry, because the answer is only useful at the prompt.
-    pub fn refresh_window_size(&mut self) {
-        if !self.window_size_known || rsh_process::take_resize() {
+    pub fn refresh_window_size(&mut self, resized: bool) {
+        if !self.window_size_known || resized {
             if let Some(size) = rsh_terminal::size() {
                 std::env::set_var("COLUMNS", size.cols.to_string());
                 std::env::set_var("LINES", size.rows.to_string());
@@ -156,6 +156,29 @@ impl Shell {
     /// Whether a Ctrl-C has arrived since this was last called.
     pub fn take_interrupt(&self) -> bool {
         rsh_process::take_interrupt()
+    }
+
+    /// The descriptor that becomes readable when a signal arrives.
+    ///
+    /// Exposed for the REPL's event loop to register. Routed through the shell
+    /// rather than reached for directly, for the same reason the handlers are:
+    /// the binary talks to the executor, and the executor owns shell state — of
+    /// which "a signal is waiting to be looked at" is a part.
+    pub fn signal_fd(&self) -> Option<std::os::fd::RawFd> {
+        rsh_process::notify_fd()
+    }
+
+    /// Throw away the wakeup bytes the handlers wrote.
+    ///
+    /// They carry no information: a handler cannot safely encode which signal
+    /// it was, and does not need to, because the flags already say.
+    pub fn drain_signal_notifications(&self) {
+        rsh_process::drain_notifications();
+    }
+
+    /// Whether the terminal has been resized since this was last called.
+    pub fn take_resize(&self) -> bool {
+        rsh_process::take_resize()
     }
 
     /// The signal number that asked the shell to shut down, if one has.

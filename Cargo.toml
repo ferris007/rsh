@@ -8,12 +8,14 @@ members = [
     "crates/rsh-job",
     "crates/rsh-terminal",
     "crates/rsh-line",
+    "crates/rsh-event",
     "experiments/fork_exec",
     "experiments/file_descriptors",
     "experiments/pipes",
     "experiments/signals",
     "experiments/process_groups",
     "experiments/pty",
+    "experiments/epoll",
 ]
 
 [workspace.package]
@@ -30,12 +32,13 @@ rsh-process = { path = "crates/rsh-process" }
 rsh-job = { path = "crates/rsh-job" }
 rsh-terminal = { path = "crates/rsh-terminal" }
 rsh-line = { path = "crates/rsh-line" }
+rsh-event = { path = "crates/rsh-event" }
 rsh-executor = { path = "crates/rsh-executor" }
 
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
 # `unsafe` in this project is limited to the places where the *semantics* are
 # genuinely unsafe (fork, exec), not to every syscall.
-nix = { version = "0.31", default-features = false, features = ["fs", "process", "signal", "term"] }
+nix = { version = "0.31", default-features = false, features = ["event", "fs", "process", "signal", "term"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"

@@ -43,9 +43,17 @@ name = "rsh"
 version = "0.1.0"
 dependencies = [
  "nix",
+ "rsh-event",
  "rsh-executor",
  "rsh-line",
  "rsh-terminal",
+]
+
+[[package]]
+name = "rsh-event"
+version = "0.1.0"
+dependencies = [
+ "nix",
 ]
 
 [[package]]
@@ -91,6 +99,14 @@ name = "rsh-terminal"
 version = "0.1.0"
 dependencies = [
  "nix",
+]
+
+[[package]]
+name = "xp-epoll"
+version = "0.1.0"
+dependencies = [
+ "nix",
+ "rsh-event",
 ]
 
 [[package]]

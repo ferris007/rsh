@@ -42,6 +42,10 @@ Two crates cut across the stack rather than sitting in it:
   question about the terminal in one crate turned out to matter more than the
   argument that ownership is really about process groups.
 
+`rsh-event` sits under the REPL: readiness notification over `epoll` and
+`kqueue`, so the loop can wait on input and signals at once. It knows nothing
+about shells.
+
 A third, `rsh-line`, sits beside the REPL rather than under it: line editing,
 history, and completion. It performs no I/O at all — keys in, an action out —
 which is what lets a component that is almost entirely edge cases be tested
