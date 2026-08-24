@@ -32,6 +32,9 @@ fn writer_path() -> std::path::PathBuf {
 /// How long to wait before checking what has arrived.
 const PEEK_AFTER: Duration = Duration::from_millis(400);
 
+/// How long to keep waiting for the program to finish after that.
+const FINISH_WITHIN: Duration = Duration::from_secs(5);
+
 fn main() {
     println!("running: xp-pty-writer, which prints a line, sleeps, prints another");
     println!(
@@ -95,16 +98,24 @@ fn run_with_output(write: OwnedFd, read: OwnedFd) -> (String, String) {
     }
 
     everything.push_str(&early);
-    let _ = waitpid(child, None);
 
-    loop {
+    // Keep reading until the program's last line arrives, or time runs out.
+    //
+    // Deliberately *before* reaping. A pseudoterminal master stops yielding
+    // data once its slave is gone — on macOS immediately, so anything still
+    // unread when the child exits is simply lost. Draining while the child is
+    // alive avoids depending on which platform buffers what.
+    let patience = Instant::now() + FINISH_WITHIN;
+    while !everything.contains("second") && Instant::now() < patience {
         let mut chunk = [0_u8; 256];
         match reader.read(&mut chunk) {
             Ok(0) => break,
             Ok(count) => everything.push_str(&String::from_utf8_lossy(&chunk[..count])),
-            Err(_) => break,
+            Err(_) => std::thread::sleep(Duration::from_millis(25)),
         }
     }
+
+    let _ = waitpid(child, None);
 
     (tidy(&early), tidy(&everything))
 }
