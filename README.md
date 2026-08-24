@@ -16,32 +16,39 @@ Unix actually works**.
 
 ## Status
 
-Phase 3 — redirection works. Alongside Phase 2's parser and expansion, the shell
-now runs `>`, `>>`, `<`, `2>`, `2>&1`, and arbitrary descriptors, for external
-commands and builtins alike.
+Phase 4 — pipelines work. Together with the parser, expansion, and redirection
+from earlier phases, the shell now runs real command lines.
 
 ```console
 $ cargo run -p rsh
+rsh> printf '3\n1\n2\n' | sort | head -2
+1
+2
+rsh> yes | head -2
+y
+y
 rsh> echo hello > out.txt
 rsh> cat < out.txt
 hello
-rsh> sh -c 'echo out; echo err >&2' > both.txt 2>&1
-rsh> echo "the last command exited $?"
-the last command exited 0
-rsh> cat < nosuchfile
-rsh: nosuchfile: No such file or directory
-  cat < nosuchfile
-      ^^^^^^^^^^^^
-rsh> echo hi | grep hi
-rsh: pipelines are not implemented yet (roadmap phase 4)
-  echo hi | grep hi
-          ^
+rsh> sh -c 'exit 3' | sh -c 'exit 0'
+rsh> echo "the pipeline reported $?"
+the pipeline reported 0
+rsh> echo a ; echo b
+rsh: `;` is not supported
+  echo a ; echo b
+         ^
 rsh> exit
 ```
 
-Pipelines, signals, and job control are still ahead. Syntax the shell cannot
-run yet is parsed, refused by name, and pointed at — never silently treated as
-an argument.
+`yes | head -2` terminates, which is less obvious than it looks: `head` exits,
+`yes` writes into a pipe with nobody reading, and the kernel kills it with
+`SIGPIPE`. A shell written in Rust has to reset that signal explicitly, or every
+program it runs inherits Rust's "ignore SIGPIPE" and the mechanism is gone —
+see [`experiments/pipes`](experiments/pipes/).
+
+Signals, job control, and terminal handling are still ahead. Syntax the shell
+cannot run yet is parsed, refused by name, and pointed at — never silently
+treated as an argument.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 

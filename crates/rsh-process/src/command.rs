@@ -45,6 +45,8 @@ pub enum SpawnError {
     Fork(Errno),
     /// `waitpid` failed.
     Wait(Errno),
+    /// A pipe could not be created — typically the descriptor limit.
+    Pipe(Errno),
 }
 
 impl fmt::Display for SpawnError {
@@ -53,6 +55,7 @@ impl fmt::Display for SpawnError {
             Self::InteriorNul { what } => write!(f, "{what} contains a NUL byte"),
             Self::Fork(e) => write!(f, "fork failed: {e}"),
             Self::Wait(e) => write!(f, "wait failed: {e}"),
+            Self::Pipe(e) => write!(f, "cannot create pipe: {e}"),
         }
     }
 }
@@ -163,6 +166,28 @@ impl Command {
                     // without running handlers or flushing inherited buffers.
                     unsafe { libc::_exit(EXIT_REDIRECT_FAILED) }
                 }
+
+                // Put SIGPIPE back to its default action.
+                //
+                // Rust's runtime sets SIGPIPE to SIG_IGN at startup so that a
+                // Rust program gets an `EPIPE` error instead of dying. That is
+                // a fine default for a Rust program and a disastrous one for a
+                // shell: SIG_IGN is *inherited across exec* — only installed
+                // handlers are reset — so every child of `rsh` would start with
+                // SIGPIPE ignored.
+                //
+                // The visible consequence is `yes | head -1`. With the default
+                // action, `head` exits, `yes` is killed by SIGPIPE, and the
+                // pipeline ends. With SIG_IGN inherited, `yes` gets a write
+                // error it was never written to expect, and how long it spins
+                // depends on how carefully somebody handled `EPIPE`.
+                //
+                // See experiments/pipes.
+                //
+                // SAFETY: `signal` is async-signal-safe and this sets a
+                // disposition rather than installing a handler, so nothing here
+                // can run Rust code in a signal context.
+                unsafe { libc::signal(libc::SIGPIPE, libc::SIG_DFL) };
 
                 // SAFETY: `path` and `argv_ptrs` were built before the fork and
                 // are still alive in this address-space copy. `argv_ptrs` is
