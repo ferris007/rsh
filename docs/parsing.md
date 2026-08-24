@@ -130,7 +130,7 @@ deliver it:
 | Syntax | Status |
 | --- | --- |
 | `\|` | parsed; execution is Phase 4 |
-| `<`, `>`, `>>`, `<&`, `>&`, `2>` | parsed; execution is Phase 3 |
+| `<`, `>`, `>>`, `<&`, `>&`, `2>` | **implemented** (Phase 3) |
 | `&` | refused — Phase 6 |
 | `&&`, `\|\|`, `;` | refused — not yet on the roadmap |
 | `<<` | refused — needs multi-line input |
@@ -138,9 +138,9 @@ deliver it:
 | `${X:-default}`, `$1` | refused — only plain `${name}` so far |
 | `*`, `?`, `[...]` | passed through literally — no globbing yet |
 
-The first two rows are the Phase 2 result: the shell now parses the whole
-construct, builds the tree, and *then* declines to run it. `echo hi > out.txt`
-does not create `out.txt`.
+Redirection graduated in Phase 3 — the tree the parser built is now executed.
+Pipelines are still parsed and declined, which is the pattern: the shell
+understands the whole construct before it can run it, and says so by name.
 
 Globbing is the one case that passes through silently, and that is not an
 oversight: a POSIX shell leaves a pattern unchanged when it matches nothing, so

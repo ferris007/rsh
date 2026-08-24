@@ -22,7 +22,15 @@ use nix::libc;
 use nix::sys::wait::waitpid;
 use nix::unistd::{fork, ForkResult, Pid};
 
+use crate::redirect::Redirections;
 use crate::status::{ExitStatus, EXIT_NOT_EXECUTABLE};
+
+/// Reported by a child that could not rearrange its descriptors.
+///
+/// Distinct from an exec failure: the program was never reached. Most
+/// redirection problems — a missing file, a permission error — are caught in
+/// the parent, so this covers only what cannot be seen until the child runs.
+const EXIT_REDIRECT_FAILED: i32 = 1;
 
 /// Why a process could not be started, or its result collected.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -72,6 +80,8 @@ pub struct Command {
     _argv: Vec<CString>,
     /// `argv` as `exec` wants it: pointers, NULL-terminated.
     argv_ptrs: Vec<*const libc::c_char>,
+    /// Descriptor changes to make in the child, in order.
+    redirections: Redirections,
 }
 
 impl Command {
@@ -107,7 +117,19 @@ impl Command {
             path: path_c,
             _argv: argv,
             argv_ptrs,
+            redirections: Redirections::new(),
         })
+    }
+
+    /// Attach descriptor changes to apply in the child.
+    ///
+    /// They are applied after the fork and before the exec — the only moment
+    /// when a process's descriptors can be rearranged without disturbing the
+    /// shell's own.
+    #[must_use]
+    pub fn redirections(mut self, redirections: Redirections) -> Self {
+        self.redirections = redirections;
+        self
     }
 
     /// Fork, and execute the program in the child.
@@ -126,6 +148,21 @@ impl Command {
 
             Ok(ForkResult::Child) => {
                 // ---- async-signal-safe territory begins here ----
+
+                // Descriptors first: the program must start with the ones the
+                // user asked for. `apply_raw` calls only `dup2`, which is
+                // async-signal-safe and allocates nothing.
+                if self.redirections.apply_raw().is_err() {
+                    const FAILED: &[u8] = b"rsh: cannot redirect\n";
+
+                    // SAFETY: `write(2)` is async-signal-safe and the buffer is
+                    // a 'static byte string.
+                    let _ = unsafe { libc::write(2, FAILED.as_ptr().cast(), FAILED.len()) };
+
+                    // SAFETY: `_exit` is async-signal-safe and terminates
+                    // without running handlers or flushing inherited buffers.
+                    unsafe { libc::_exit(EXIT_REDIRECT_FAILED) }
+                }
 
                 // SAFETY: `path` and `argv_ptrs` were built before the fork and
                 // are still alive in this address-space copy. `argv_ptrs` is

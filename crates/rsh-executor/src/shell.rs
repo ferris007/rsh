@@ -2,11 +2,13 @@
 
 use std::io::Write;
 
+use nix::errno::Errno;
 use rsh_parser::{Command, ParseError, Pipeline, Span};
-use rsh_process::{ResolveError, EXIT_NOT_EXECUTABLE, EXIT_NOT_FOUND};
+use rsh_process::{Redirections, ResolveError, Restore, EXIT_NOT_EXECUTABLE, EXIT_NOT_FOUND};
 
 use crate::builtin::Builtin;
 use crate::expand::{expand_all, ProcessEnv};
+use crate::redirect::{plan, RedirectError};
 
 /// Exit status for input the shell could not parse, or could not carry out.
 ///
@@ -75,24 +77,24 @@ impl Shell {
             return Outcome::Continue;
         }
 
-        let command = &pipeline.commands()[0];
-
-        if let Some(redirect) = command.redirects().first() {
-            self.refuse(
-                line,
-                redirect.span(),
-                "redirection is not implemented yet",
-                3,
-            );
-            return Outcome::Continue;
-        }
-
-        self.run_command(command)
+        self.run_command(line, &pipeline.commands()[0])
     }
 
-    fn run_command(&mut self, command: &Command) -> Outcome {
+    fn run_command(&mut self, line: &str, command: &Command) -> Outcome {
         let env = ProcessEnv::new(self.last_status);
         let argv = expand_all(command.words(), &env);
+
+        // Redirections are set up before the command is looked up, which is why
+        // `nosuchcmd > out` still creates `out`. Every POSIX shell behaves this
+        // way, and scripts rely on it: `> lockfile` is a command whose only
+        // effect is its redirection.
+        let redirections = match plan(command, &env) {
+            Ok(plan) => plan,
+            Err(error) => {
+                self.report_redirect_error(line, &error);
+                return Outcome::Continue;
+            }
+        };
 
         // Everything expanded away: `$UNSET` on its own. POSIX says a command
         // with no name and no assignments completes with status zero, so this
@@ -104,12 +106,31 @@ impl Shell {
 
         match Builtin::lookup(program) {
             Some(builtin) => {
+                // A builtin runs inside the shell, so there is no child whose
+                // descriptors can be arranged. The shell moves its own and puts
+                // them back — which is what `Restore` exists for.
+                let _restore = match apply_to_shell(&redirections) {
+                    Ok(restore) => restore,
+                    Err(error) => {
+                        eprintln!("rsh: {error}");
+                        self.last_status = 1;
+                        return Outcome::Continue;
+                    }
+                };
+
                 let (outcome, status) = builtin.run(&argv[1..], self.last_status);
+
+                // Flush while the redirection is still in place. Anything left
+                // in the buffer would otherwise be written after the descriptor
+                // has been put back, and land on the terminal instead of in the
+                // file.
+                let _ = std::io::stdout().flush();
+
                 self.last_status = status;
                 outcome
             }
             None => {
-                self.last_status = run_external(&argv);
+                self.last_status = run_external(&argv, redirections);
                 Outcome::Continue
             }
         }
@@ -128,10 +149,33 @@ impl Shell {
         underline(line, error.span());
         self.last_status = EXIT_SYNTAX;
     }
+
+    /// Report a redirection that could not be set up.
+    ///
+    /// Status 1, not 2: the line was valid, and the failure is about the state
+    /// of the filesystem rather than about what the user wrote.
+    fn report_redirect_error(&mut self, line: &str, error: &RedirectError) {
+        eprintln!("rsh: {error}");
+        underline(line, error.span());
+        self.last_status = 1;
+    }
+}
+
+/// Apply redirections to the shell itself, for a builtin.
+///
+/// Stdout is flushed first: anything still buffered was produced before the
+/// redirection and belongs on the old descriptor.
+fn apply_to_shell(redirections: &Redirections) -> Result<Option<Restore>, Errno> {
+    if redirections.is_empty() {
+        return Ok(None);
+    }
+
+    let _ = std::io::stdout().flush();
+    redirections.apply_scoped().map(Some)
 }
 
 /// Run a command as a child process, and wait for it.
-fn run_external(argv: &[String]) -> i32 {
+fn run_external(argv: &[String], redirections: Redirections) -> i32 {
     let program = &argv[0];
 
     let path = match rsh_process::resolve(program, std::env::var_os("PATH").as_deref()) {
@@ -145,7 +189,12 @@ fn run_external(argv: &[String]) -> i32 {
         }
     };
 
-    let prepared = match rsh_process::Command::new(&path, argv) {
+    let prepared = match rsh_process::Command::new(&path, argv).map(|command| {
+        // Attached now, applied in the child. The shell's own descriptors are
+        // never touched — which is why `echo hi > f` leaves the prompt where it
+        // was, and why a child cannot redirect its parent.
+        command.redirections(redirections)
+    }) {
         Ok(prepared) => prepared,
         Err(error) => {
             eprintln!("rsh: {error}");
