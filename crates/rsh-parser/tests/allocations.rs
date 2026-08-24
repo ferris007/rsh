@@ -14,6 +14,23 @@
 //! These numbers are ceilings with room in them, not targets. A change that
 //! moves one is not a failure; it is a prompt to look, decide, and edit the
 //! number with a reason in the commit message.
+//!
+//! # Why there is no test harness
+//!
+//! The counter below is a global in the process, so it counts every allocation
+//! made anywhere while it is running — including ones made on another thread.
+//! libtest is multi-threaded: it runs each test on its own thread and formats
+//! results on the main one, and that formatting allocates. Measured beside one
+//! other test, parsing `ls` reads anywhere between 15 and 62 rather than its
+//! true 8, which is how this file first failed on CI while passing locally.
+//!
+//! Filtering by thread is the obvious repair and the wrong one: finding out
+//! which thread you are on means touching thread-local storage from inside the
+//! global allocator, and on some platforms the first such touch allocates —
+//! straight back into the allocator that asked.
+//!
+//! So this target sets `harness = false` in `Cargo.toml` and is a plain `main`.
+//! One thread, nothing else running in it, the same number every time.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -76,29 +93,31 @@ const CASES: &[(&str, &str, usize)] = &[
     ("expansion", "echo $HOME/$USER/${PATH}", 36),
 ];
 
-/// One test, because the counter is process-global and the harness is
-/// multi-threaded.
-///
-/// Run in parallel, these measurements include whatever a neighbouring test
-/// happened to allocate — which is how parsing `ls` measures 8 alone and 64
-/// beside one other test. A thread-local counter would be the alternative, and
-/// touching thread-local storage from inside the global allocator is a way to
-/// recurse into it.
-///
-/// So: every assertion about allocation lives in this function.
-#[test]
-fn parsing_stays_within_its_allocation_budget() {
+fn main() {
+    // The counts are printed whether or not they pass: the numbers are the
+    // point, and a run that only says "ok" gives nobody the figure to write
+    // into `CASES` after a deliberate change.
+    //
+    // Printing first, before anything is measured, also gets the one-time cost
+    // of setting up stdout out of the way, where it cannot land in a count.
+    println!("case          allocations  ceiling");
+
+    let mut over = Vec::new();
+
     for (name, line, ceiling) in CASES {
         let count = allocations(|| {
             let _ = rsh_parser::parse(line);
         });
 
-        assert!(
-            count <= *ceiling,
-            "parsing the {name} case allocated {count} times, over the ceiling of {ceiling}.\n\
-             line: {line}\n\
-             If the change was deliberate, raise the number and say why."
-        );
+        let verdict = if count <= *ceiling { "" } else { "  OVER" };
+        println!("{name:<12} {count:>11}  {ceiling:>7}{verdict}");
+
+        if count > *ceiling {
+            over.push(format!(
+                "parsing the {name} case allocated {count} times, over the ceiling of {ceiling}.\n\
+                 line: {line}"
+            ));
+        }
     }
 
     // Ten identical lines should cost about ten times one line. A parser that
@@ -113,22 +132,20 @@ fn parsing_stays_within_its_allocation_budget() {
         }
     });
 
-    assert!(
-        ten <= one * 12,
-        "ten lines allocated {ten} times against {one} for one — that is not flat"
-    );
-}
+    println!("\nscaling      {one} for one line, {ten} for ten");
 
-/// Print the measured counts, for setting the ceilings above from data.
-///
-/// `cargo test -p rsh-parser --test allocations -- --ignored --nocapture`
-#[test]
-#[ignore = "reports numbers rather than asserting"]
-fn report_measured_counts() {
-    for (name, line, ceiling) in CASES {
-        let count = allocations(|| {
-            let _ = rsh_parser::parse(line);
-        });
-        println!("{name:<12} {count:>4}  (ceiling {ceiling})  {line}");
+    if ten > one * 12 {
+        over.push(format!(
+            "ten lines allocated {ten} times against {one} for one — that is not flat"
+        ));
+    }
+
+    if !over.is_empty() {
+        eprintln!();
+        for complaint in &over {
+            eprintln!("{complaint}");
+        }
+        eprintln!("\nIf the change was deliberate, raise the number and say why.");
+        std::process::exit(1);
     }
 }
