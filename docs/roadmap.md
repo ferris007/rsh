@@ -6,6 +6,10 @@ and decisions recorded along the way are part of the project.
 
 Each phase builds only on primitives established by earlier phases.
 
+**All eleven phases are done.** Three checklist items are deliberately
+unchecked, each with the reason beside it; see [What is not
+finished](#what-is-not-finished) at the end.
+
 ---
 
 ## Phase 0 — Project foundation
@@ -359,19 +363,64 @@ produced any would be worse than leaving the boxes unchecked.
 ## Phase 11 — Linux systems experiments
 
 Each experiment answers one concrete systems question with a runnable program
-and a recorded observation.
+and a recorded observation. All eight exist; see
+[`experiments/README.md`](../experiments/README.md) for the format.
 
-See [`experiments/README.md`](../experiments/README.md) for the format and the
-index of what exists so far.
+| Experiment | Question |
+| --- | --- |
+| `fork_exec` | A child terminates with `exit()` instead of `_exit()`. What does it take with it? |
+| `file_descriptors` | `dup2` clears close-on-exec on its target. What if source and target are the same? |
+| `pipes` | A Rust program ignores `SIGPIPE` before `main`. What happens to the programs it `exec`s? |
+| `signals` | You press Ctrl-C. Who actually gets the signal? |
+| `process_groups` | Two processes, one terminal, both blocked in `read`. What happens to the one that does not own it? |
+| `pty` | A program prints progress as it works. Pipe it and the progress stops. Where did it go? |
+| `epoll` | A signal handler sets a flag and the loop checks the flag. What is missing? |
+| `namespaces` | You call `unshare(CLONE_NEWPID)`. What is your process id now? |
 
-```text
-experiments/
-├── fork_exec/          done — why the child must _exit, not exit
-├── process_groups/
-├── signals/
-├── pipes/
-├── epoll/
-├── pty/
-├── file_descriptors/
-└── namespaces/
-```
+Seven of the eight came out of a bug found while building the phase they
+document. That was not the plan; it is what happened every time.
+
+The exception is `namespaces`, which answers nothing `rsh` needed to know. It is
+here because it is the sharpest form of something the rest of the project keeps
+running into: a process id is a fact about a table, not about a process.
+
+---
+
+# What is not finished
+
+Three boxes are unchecked, and none of them is an oversight.
+
+**Flamegraphs** and **syscall analysis** (Phase 10) are documented procedures
+rather than results. The machine this was built on has no `perf`, `strace`, or
+`valgrind`, and installing them needs a password nobody typed.
+[`docs/performance.md`](performance.md) gives the commands and says plainly that
+they were not run. Printing plausible output without having produced any would
+be worse than an unchecked box.
+
+**Child-process events** (Phase 9) would mean waiting for a child through the
+poller rather than through `SIGCHLD`. Linux has `pidfd_open` and the BSDs have
+`EVFILT_PROC`, so it is possible on both — but the shell already learns about
+child deaths promptly, through `SIGCHLD` and the self-pipe, and the change would
+add platform-specific code for no behaviour a user could observe. Left undone on
+purpose, which is a different thing from left out.
+
+## What a person picking this up would find missing
+
+Not roadmap items — the honest list.
+
+- **`&&`, `||`, and `;`.** The parser recognises and refuses them. They need a
+  list grammar above the pipeline, and then `!` and subshells want the same.
+- **Builtins in a pipeline**, which needs a subshell: a forked child running
+  shell code rather than `exec`ing immediately.
+- **Multi-line input.** The parser reports an unterminated quote where a shell
+  would prompt for more, and the editor cannot span lines either. Both halves
+  have to arrive together.
+- **`set -e`, `set -u`, `set -o pipefail`.** Each is one flag and a handful of
+  checks, and each changes the meaning of code already written.
+- **Lines longer than the terminal is wide.** The editor redraws one row.
+  Fixing it needs the display width of each character, which is a harder problem
+  than it sounds.
+- **Extracting `rsh-job` and `rsh-terminal` as crates.** They were kept free of
+  the rest for exactly this, and "manage a group of child processes without
+  losing the terminal" is a problem more programs have than have a shell to
+  solve it with.
