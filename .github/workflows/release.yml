@@ -32,8 +32,33 @@ permissions:
   contents: write
 
 jobs:
+  # The build jobs upload into a release, and on a tag push there is not
+  # necessarily one to upload into yet -- the first 0.1.1 build failed with
+  # "release not found" because three jobs raced a release that was created a
+  # minute later. One job makes the page first, and the rest wait for it, which
+  # also keeps three parallel jobs from trying to create it at once.
+  prepare:
+    name: release page
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Create the release if it does not exist
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          if gh release view "$tag" --repo "$REPO" >/dev/null 2>&1; then
+            echo "release $tag already exists, leaving its notes alone"
+          else
+            gh release create "$tag" --repo "$REPO" \
+              --title "rsh ${tag#v}" --generate-notes --verify-tag
+          fi
+
   build:
     name: ${{ matrix.target }}
+    needs: prepare
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
