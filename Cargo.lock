@@ -405,7 +405,7 @@ dependencies = [
 
 [[package]]
 name = "whelk"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
  "whelk-event",
@@ -416,7 +416,7 @@ dependencies = [
 
 [[package]]
 name = "whelk-benches"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "criterion",
  "whelk-executor",
@@ -427,14 +427,14 @@ dependencies = [
 
 [[package]]
 name = "whelk-event"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "whelk-executor"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
  "whelk-job",
@@ -446,7 +446,7 @@ dependencies = [
 
 [[package]]
 name = "whelk-job"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
  "whelk-process",
@@ -455,32 +455,32 @@ dependencies = [
 
 [[package]]
 name = "whelk-line"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "whelk-terminal",
 ]
 
 [[package]]
 name = "whelk-parser"
-version = "0.1.2"
+version = "0.2.0"
 
 [[package]]
 name = "whelk-process"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "whelk-terminal"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "whelk-trace"
-version = "0.1.2"
+version = "0.2.0"
 
 [[package]]
 name = "winapi"
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "xp-epoll"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
  "whelk-event",
@@ -538,49 +538,49 @@ dependencies = [
 
 [[package]]
 name = "xp-file-descriptors"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-fork-exec"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-namespaces"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-pipes"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-process-groups"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-pty"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-signals"
-version = "0.1.2"
+version = "0.2.0"
 dependencies = [
  "nix",
 ]
