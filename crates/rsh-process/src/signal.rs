@@ -51,6 +51,9 @@ static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 /// The signal that asked the shell to shut down, or 0.
 static TERMINATING: AtomicI32 = AtomicI32::new(0);
 
+/// Set when the terminal changes size.
+static RESIZED: AtomicBool = AtomicBool::new(false);
+
 /// Set when a child changes state — exits, is stopped, or is continued.
 ///
 /// Only useful once a job can outlive the command that started it. A shell that
@@ -70,6 +73,15 @@ extern "C" fn on_interrupt(_signal: c_int) {
 /// Record a request to shut down.
 extern "C" fn on_terminate(signal: c_int) {
     TERMINATING.store(signal, Ordering::Relaxed);
+}
+
+/// Record that the window changed size.
+///
+/// The new size is deliberately not read here. `ioctl` is not on the list of
+/// functions a handler may call, and there is no hurry: the shell asks at the
+/// next prompt, which is the only moment the answer is useful anyway.
+extern "C" fn on_resize(_signal: c_int) {
+    RESIZED.store(true, Ordering::Relaxed);
 }
 
 /// Record that some child changed state.
@@ -107,6 +119,13 @@ pub fn install() -> Result<(), Errno> {
         SaFlags::SA_RESTART,
         SigSet::empty(),
     );
+    // SA_RESTART for the same reason as SIGCHLD: someone dragging the window
+    // is not a reason to abandon the line they are halfway through typing.
+    let resize = SigAction::new(
+        SigHandler::Handler(on_resize),
+        SaFlags::SA_RESTART,
+        SigSet::empty(),
+    );
 
     for (signal, action) in [
         (Signal::SIGINT, &interrupt),
@@ -115,6 +134,7 @@ pub fn install() -> Result<(), Errno> {
         // Ctrl-\, which would otherwise kill the shell and dump core.
         (Signal::SIGQUIT, &interrupt),
         (Signal::SIGCHLD, &child),
+        (Signal::SIGWINCH, &resize),
     ] {
         // SAFETY: the handlers above do nothing but store to a `static`
         // atomic — no allocation, no locks, no calls into code that could do
@@ -144,6 +164,11 @@ pub fn install() -> Result<(), Errno> {
     }
 
     Ok(())
+}
+
+/// Whether the terminal has been resized since this was last called.
+pub fn take_resize() -> bool {
+    RESIZED.swap(false, Ordering::Relaxed)
 }
 
 /// Whether a child has changed state since this was last called.

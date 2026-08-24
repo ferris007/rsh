@@ -48,6 +48,13 @@ pub struct Shell {
     shell_pgid: Pid,
     /// Whether the user has already been warned about stopped jobs.
     warned_about_jobs: bool,
+    /// The terminal settings the shell wants for its own prompt.
+    ///
+    /// Captured once, at startup, before any job has had a chance to change
+    /// them. Restored after every foreground job.
+    terminal_modes: Option<rsh_terminal::Modes>,
+    /// Whether `COLUMNS` and `LINES` have been set at least once.
+    window_size_known: bool,
 }
 
 impl Default for Shell {
@@ -55,9 +62,11 @@ impl Default for Shell {
         Self {
             last_status: 0,
             jobs: JobTable::new(),
-            job_control: rsh_process::is_interactive(),
+            job_control: rsh_terminal::is_interactive(),
             shell_pgid: getpgrp(),
             warned_about_jobs: false,
+            terminal_modes: rsh_terminal::snapshot(),
+            window_size_known: false,
         }
     }
 }
@@ -71,6 +80,36 @@ impl Shell {
     /// The status of the most recent command — what `$?` reports.
     pub fn last_status(&self) -> i32 {
         self.last_status
+    }
+
+    /// Keep `COLUMNS` and `LINES` in step with the window.
+    ///
+    /// These are environment variables, so children read them — a shell that
+    /// never updated them would hand every program it runs a stale idea of the
+    /// window, and `less` or `ps` would format for the wrong width.
+    ///
+    /// Called at startup and after every `SIGWINCH`. The handler itself only
+    /// sets a flag: `ioctl` is not something a signal handler may call, and
+    /// there is no hurry, because the answer is only useful at the prompt.
+    pub fn refresh_window_size(&mut self) {
+        if !self.window_size_known || rsh_process::take_resize() {
+            if let Some(size) = rsh_terminal::size() {
+                std::env::set_var("COLUMNS", size.cols.to_string());
+                std::env::set_var("LINES", size.rows.to_string());
+            }
+            self.window_size_known = true;
+        }
+    }
+
+    /// Put the terminal back the way the shell found it.
+    ///
+    /// Called on the way out. A shell that exits without doing this leaves
+    /// whatever the last job did in place — and the last job may well have been
+    /// killed halfway through changing it.
+    pub fn restore_terminal(&self) {
+        if let Some(modes) = &self.terminal_modes {
+            let _ = rsh_terminal::restore(modes);
+        }
     }
 
     /// Notice what background jobs have done, and say so.
@@ -219,6 +258,7 @@ impl Shell {
             jobs: &mut self.jobs,
             job_control: self.job_control,
             shell_pgid: self.shell_pgid,
+            shell_modes: self.terminal_modes.as_ref(),
         };
 
         self.last_status = match crate::pipeline::run(pipeline, &env, &mut ctx, &text) {
@@ -274,6 +314,7 @@ impl Shell {
                     jobs: &mut self.jobs,
                     job_control: self.job_control,
                     shell_pgid: self.shell_pgid,
+                    shell_modes: self.terminal_modes.as_ref(),
                     last_status: self.last_status,
                 };
                 let (outcome, status) = builtin.run(&argv[1..], &mut ctx);

@@ -1,6 +1,6 @@
 [package]
-name = "rsh-job"
-description = "Job table and process-group bookkeeping for the rsh shell"
+name = "rsh-terminal"
+description = "Terminal state, modes, ownership, and size for the rsh shell"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,8 +10,10 @@ authors.workspace = true
 
 [dependencies]
 nix = { workspace = true }
-rsh-process = { workspace = true }
-rsh-terminal = { workspace = true }
+
+[dev-dependencies]
+# Only the tests need a pseudoterminal to run against.
+nix = { workspace = true }
 
 [lints]
 workspace = true

@@ -33,6 +33,7 @@ pub(crate) struct Context<'a> {
     pub jobs: &'a mut JobTable,
     pub job_control: bool,
     pub shell_pgid: nix::unistd::Pid,
+    pub shell_modes: Option<&'a rsh_terminal::Modes>,
     pub last_status: i32,
 }
 
@@ -215,10 +216,19 @@ fn fg(args: &[String], ctx: &mut Context<'_>) -> i32 {
 
     println!("{command}");
 
-    let _ = rsh_process::give_terminal_to(pgid);
+    // Put the job's terminal modes back before handing over. A job suspended
+    // inside `vim` needs raw mode again; giving it a terminal in the shell's
+    // canonical mode would bring it back visibly broken.
+    if let Some(job) = ctx.jobs.find(JobSpec::Id(id)) {
+        if let Some(modes) = job.modes() {
+            let _ = rsh_terminal::restore(modes);
+        }
+    }
+
+    let _ = rsh_terminal::give_to(pgid);
     if let Err(error) = nix::sys::signal::killpg(pgid, Signal::SIGCONT) {
         eprintln!("rsh: fg: {error}");
-        let _ = rsh_process::give_terminal_to(ctx.shell_pgid);
+        let _ = rsh_terminal::give_to(ctx.shell_pgid);
         return EXIT_USAGE;
     }
 
@@ -230,7 +240,19 @@ fn fg(args: &[String], ctx: &mut Context<'_>) -> i32 {
 
     let status = wait_for(ctx, id, &command);
 
-    let _ = rsh_process::give_terminal_to(ctx.shell_pgid);
+    // Same as any other foreground job: snapshot what the job left behind if it
+    // suspended again, then put the shell's own settings back.
+    let resumed_modes = rsh_terminal::snapshot();
+    let _ = rsh_terminal::give_to(ctx.shell_pgid);
+    if let Some(modes) = ctx.shell_modes {
+        let _ = rsh_terminal::restore(modes);
+    }
+    if let Some(job) = ctx.jobs.find_mut(JobSpec::Id(id)) {
+        if job.state() == JobState::Stopped {
+            job.remember_modes(resumed_modes);
+        }
+    }
+
     status
 }
 

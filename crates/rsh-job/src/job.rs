@@ -63,6 +63,13 @@ pub struct Job {
     state: JobState,
     /// Whether the user has been told this job finished.
     reported: bool,
+    /// The terminal modes the job was using when it was suspended.
+    ///
+    /// A job stopped in the middle of `vim` left the terminal in raw mode, and
+    /// the shell put its own modes back so it could print a prompt. Resuming it
+    /// has to undo that undoing, or the editor comes back to a terminal that
+    /// echoes and buffers lines — visibly broken, and not the job's fault.
+    modes: Option<rsh_terminal::Modes>,
 }
 
 /// One process within a job.
@@ -85,6 +92,7 @@ impl Job {
             command,
             state: JobState::Running,
             reported: false,
+            modes: None,
         }
     }
 
@@ -130,6 +138,16 @@ impl Job {
             let last = self.processes.last().and_then(|process| process.status);
             self.state = JobState::Done(last.unwrap_or(ExitStatus::Exited(0)));
         }
+    }
+
+    /// Remember the terminal modes this job was using.
+    pub fn remember_modes(&mut self, modes: Option<rsh_terminal::Modes>) {
+        self.modes = modes;
+    }
+
+    /// The terminal modes to put back before resuming this job.
+    pub fn modes(&self) -> Option<&rsh_terminal::Modes> {
+        self.modes.as_ref()
     }
 
     /// Record that the job was suspended.

@@ -1,4 +1,4 @@
-//! Who owns the terminal.
+//! Who owns the terminal — which process group may use it.
 //!
 //! A terminal has exactly one **foreground process group**. That single piece
 //! of kernel state decides three things at once:
@@ -22,7 +22,7 @@ use nix::unistd::{isatty, tcgetpgrp, tcsetpgrp, Pid};
 /// Standard input, because that is the one a user's terminal is reliably
 /// attached to. `rsh > log` redirects stdout and stays interactive; nothing a
 /// user does redirects stdin and expects a prompt.
-fn terminal() -> BorrowedFd<'static> {
+pub(crate) fn terminal() -> BorrowedFd<'static> {
     // SAFETY: descriptor 0 is standard input, open for the life of the process.
     // The borrow does not escape the call it is passed to.
     unsafe { BorrowedFd::borrow_raw(0) }
@@ -56,10 +56,11 @@ pub fn foreground_group() -> Option<Pid> {
 /// terminal and no shell to unfreeze it.
 ///
 /// The fix is to ignore `SIGTTOU` across the call. `rsh` ignores it for the
-/// whole session — see the note in [`crate::signal`] about resetting it in
-/// children — and this function ignores it again locally so that the operation
-/// is correct even if someone changes that policy later.
-pub fn give_terminal_to(pgid: Pid) -> Result<(), Errno> {
+/// whole session, and resets it in every child so that the shell's
+/// self-protection does not become a property of every program it runs. This
+/// function ignores it again locally, so the operation stays correct even if
+/// someone changes that policy later.
+pub fn give_to(pgid: Pid) -> Result<(), Errno> {
     let previous = ignore_ttou()?;
     let result = tcsetpgrp(terminal(), pgid);
     restore(previous)?;
@@ -86,7 +87,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_test_harness_has_no_controlling_terminal_to_speak_of() {
+    fn a_test_harness_has_no_controlling_terminal() {
         // Not an assertion about the shell so much as about the environment:
         // these tests run without a terminal, which is why the job-control
         // tests drive `rsh` through a pipe and check that it *declines* to do

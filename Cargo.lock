@@ -54,6 +54,7 @@ dependencies = [
  "rsh-job",
  "rsh-parser",
  "rsh-process",
+ "rsh-terminal",
 ]
 
 [[package]]
@@ -62,6 +63,7 @@ version = "0.1.0"
 dependencies = [
  "nix",
  "rsh-process",
+ "rsh-terminal",
 ]
 
 [[package]]
@@ -70,6 +72,13 @@ version = "0.1.0"
 
 [[package]]
 name = "rsh-process"
+version = "0.1.0"
+dependencies = [
+ "nix",
+]
+
+[[package]]
+name = "rsh-terminal"
 version = "0.1.0"
 dependencies = [
  "nix",
@@ -98,6 +107,13 @@ dependencies = [
 
 [[package]]
 name = "xp-process-groups"
+version = "0.1.0"
+dependencies = [
+ "nix",
+]
+
+[[package]]
+name = "xp-pty"
 version = "0.1.0"
 dependencies = [
  "nix",

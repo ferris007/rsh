@@ -37,10 +37,10 @@ Two crates cut across the stack rather than sitting in it:
 
 - `rsh-job` — the job table, process groups, foreground/background transitions.
   Arrived in Phase 6.
-- `rsh-terminal` — terminal modes, resize, PTYs (Phase 7). Terminal *ownership*
-  (`tcsetpgrp`) already lives in `rsh-process`, because deciding which process
-  group owns the terminal is a process-table operation that happens to be
-  spelled with a terminal descriptor.
+- `rsh-terminal` — terminal modes, size, and ownership. Arrived in Phase 7,
+  which is also when `tcsetpgrp` moved here from `rsh-process`: keeping every
+  question about the terminal in one crate turned out to matter more than the
+  argument that ownership is really about process groups.
 
 They are separate because job control and terminal ownership are *not* a step in
 the pipeline from text to process. They are long-lived state that both the REPL

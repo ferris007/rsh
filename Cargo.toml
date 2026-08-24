@@ -6,11 +6,13 @@ members = [
     "crates/rsh-process",
     "crates/rsh-executor",
     "crates/rsh-job",
+    "crates/rsh-terminal",
     "experiments/fork_exec",
     "experiments/file_descriptors",
     "experiments/pipes",
     "experiments/signals",
     "experiments/process_groups",
+    "experiments/pty",
 ]
 
 [workspace.package]
@@ -25,6 +27,7 @@ authors = ["rsh contributors"]
 rsh-parser = { path = "crates/rsh-parser" }
 rsh-process = { path = "crates/rsh-process" }
 rsh-job = { path = "crates/rsh-job" }
+rsh-terminal = { path = "crates/rsh-terminal" }
 rsh-executor = { path = "crates/rsh-executor" }
 
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
