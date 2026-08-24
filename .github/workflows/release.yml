@@ -1,0 +1,95 @@
+# Builds the binaries that go on a release page.
+#
+# Each target is built on its own operating system rather than cross-compiled.
+# A shell is the wrong program to cross-compile casually: it is `fork`, `exec`,
+# `tcsetpgrp`, and termios all the way down, and those are exactly the parts a
+# cross toolchain gets subtly wrong. Building on the real thing also means the
+# test suite that guards the binary ran on the platform it will run on.
+#
+# `debug = 1` in the release profile keeps symbols for flamegraphs, which is
+# right for a working tree and wrong for a download. The binaries are stripped
+# on the way into the archive.
+
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  # So a release that already exists can be given its binaries after the fact.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to build and upload (e.g. v0.1.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: macos-13
+            target: x86_64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release -p rsh --target ${{ matrix.target }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          name="rsh-${tag}-${{ matrix.target }}"
+          mkdir -p "dist/${name}"
+          strip "target/${{ matrix.target }}/release/rsh"
+          cp "target/${{ matrix.target }}/release/rsh" "dist/${name}/"
+          cp README.md LICENSE-MIT LICENSE-APACHE "dist/${name}/"
+          tar -czf "dist/${name}.tar.gz" -C dist "${name}"
+          # Checksums beside the archive: a download nobody can verify is a
+          # download nobody should trust.
+          if command -v sha256sum >/dev/null; then
+            (cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256")
+          else
+            (cd dist && shasum -a 256 "${name}.tar.gz" > "${name}.tar.gz.sha256")
+          fi
+
+      - name: Check the binary runs
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          bin="dist/rsh-${tag}-${{ matrix.target }}/rsh"
+          # A stripped binary that cannot start is worse than no binary. Feed it
+          # a command line on stdin, where it takes the non-interactive path.
+          echo 'echo release-smoke-test' | "$bin"
+
+      - name: Upload to the release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || github.ref_name }}"
+          gh release upload "$tag" \
+            dist/rsh-${tag}-${{ matrix.target }}.tar.gz \
+            dist/rsh-${tag}-${{ matrix.target }}.tar.gz.sha256 \
+            --clobber
