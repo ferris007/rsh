@@ -68,12 +68,15 @@ impl Shell {
     }
 
     fn run_pipeline(&mut self, line: &str, pipeline: &Pipeline) -> Outcome {
-        // Phase 2 builds the whole tree but can still only run one process.
-        // Reporting that here rather than refusing to parse is the point of
-        // this phase: the shell now understands the shape of what it declines.
-        if let [first, second, ..] = pipeline.commands() {
-            let span = operator_between(line, first.span().end, second.span().start, '|');
-            self.refuse(line, span, "pipelines are not implemented yet", 4);
+        if pipeline.commands().len() > 1 {
+            let env = ProcessEnv::new(self.last_status);
+            self.last_status = match crate::pipeline::run(pipeline, &env) {
+                Ok(status) => status,
+                Err(error) => {
+                    eprintln!("rsh: {error}");
+                    1
+                }
+            };
             return Outcome::Continue;
         }
 
@@ -134,13 +137,6 @@ impl Shell {
                 Outcome::Continue
             }
         }
-    }
-
-    /// Report syntax the shell understands but has not implemented.
-    fn refuse(&mut self, line: &str, span: Span, message: &str, phase: u8) {
-        eprintln!("rsh: {message} (roadmap phase {phase})");
-        underline(line, span);
-        self.last_status = EXIT_SYNTAX;
     }
 
     /// Report a parse error, underlining the characters at fault.
@@ -232,17 +228,4 @@ fn underline(line: &str, span: Span) {
 
     eprintln!("  {line}");
     eprintln!("  {}{}", " ".repeat(column), "^".repeat(width));
-}
-
-/// Find an operator character between two commands, for pointing at it.
-///
-/// Falls back to the whole gap if the character is not there, which cannot
-/// happen for a parsed pipeline but keeps this total rather than panicking on a
-/// future caller's behalf.
-fn operator_between(line: &str, from: usize, to: usize, operator: char) -> Span {
-    let gap = line.get(from..to).unwrap_or("");
-    match gap.find(operator) {
-        Some(offset) => Span::new(from + offset, from + offset + operator.len_utf8()),
-        None => Span::new(from, to),
-    }
 }

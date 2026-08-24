@@ -92,7 +92,21 @@ impl std::error::Error for RedirectError {}
 /// `> f > f` truncates twice, and `> a > b` leaves `a` created but empty.
 pub fn plan(command: &Command, env: &dyn Environment) -> Result<Redirections, RedirectError> {
     let mut plan = Redirections::new();
+    plan_into(command, env, &mut plan)?;
+    Ok(plan)
+}
 
+/// Add a command's redirections to an existing plan.
+///
+/// Used by pipelines, which put the pipe's descriptors in place first. The
+/// order is not cosmetic: a redirection written by the user must override the
+/// pipe, so that `echo hi > f | cat` writes to the file and `cat` reads an
+/// immediate end-of-input. Appending here is what makes that fall out.
+pub fn plan_into(
+    command: &Command,
+    env: &dyn Environment,
+    plan: &mut Redirections,
+) -> Result<(), RedirectError> {
     for redirect in command.redirects() {
         let span = redirect.span();
         let target = redirect.kind().target();
@@ -140,7 +154,7 @@ pub fn plan(command: &Command, env: &dyn Environment) -> Result<Redirections, Re
         }
     }
 
-    Ok(plan)
+    Ok(())
 }
 
 /// Open a redirection target, keeping the path in the error.

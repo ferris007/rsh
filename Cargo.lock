@@ -78,3 +78,10 @@ version = "0.1.0"
 dependencies = [
  "nix",
 ]
+
+[[package]]
+name = "xp-pipes"
+version = "0.1.0"
+dependencies = [
+ "nix",
+]

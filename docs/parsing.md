@@ -129,7 +129,7 @@ deliver it:
 
 | Syntax | Status |
 | --- | --- |
-| `\|` | parsed; execution is Phase 4 |
+| `\|` | **implemented** (Phase 4) |
 | `<`, `>`, `>>`, `<&`, `>&`, `2>` | **implemented** (Phase 3) |
 | `&` | refused — Phase 6 |
 | `&&`, `\|\|`, `;` | refused — not yet on the roadmap |
@@ -138,9 +138,10 @@ deliver it:
 | `${X:-default}`, `$1` | refused — only plain `${name}` so far |
 | `*`, `?`, `[...]` | passed through literally — no globbing yet |
 
-Redirection graduated in Phase 3 — the tree the parser built is now executed.
-Pipelines are still parsed and declined, which is the pattern: the shell
-understands the whole construct before it can run it, and says so by name.
+Redirection graduated in Phase 3 and pipelines in Phase 4 — the tree the parser
+built in Phase 2 is now executed as written. The remaining rows follow the same
+pattern: the shell understands the whole construct before it can run it, and
+declines by name until it can.
 
 Globbing is the one case that passes through silently, and that is not an
 oversight: a POSIX shell leaves a pattern unchanged when it matches nothing, so

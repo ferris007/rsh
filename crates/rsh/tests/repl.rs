@@ -235,10 +235,9 @@ fn blank_lines_and_comments_do_nothing() {
 
 #[test]
 fn unimplemented_operators_are_refused_by_name() {
-    let session = run("echo hi | grep hi\n");
+    let session = run("echo hi && echo bye\n");
     let stderr = session.stderr();
-    assert!(stderr.contains("pipelines"), "stderr was {stderr:?}");
-    assert!(stderr.contains("phase 4"), "stderr was {stderr:?}");
+    assert!(stderr.contains("&&"), "stderr was {stderr:?}");
     // Refused, not partially run: `echo` must not have executed.
     assert_eq!(session.stdout(), "");
     assert_eq!(session.code(), 2);
@@ -259,10 +258,10 @@ fn control_operators_are_refused_too() {
 
 #[test]
 fn refusals_underline_the_offending_characters() {
-    let session = run("echo hi | grep hi\n");
+    let session = run("echo a ; echo b\n");
     let stderr = session.stderr();
     assert!(stderr.contains('^'), "stderr was {stderr:?}");
-    assert!(stderr.contains("phase 4"), "stderr was {stderr:?}");
+    assert!(stderr.contains(';'), "stderr was {stderr:?}");
 }
 
 #[test]
@@ -278,7 +277,7 @@ fn an_unterminated_quote_is_reported() {
 
 #[test]
 fn a_parse_error_does_not_stop_the_shell() {
-    let session = run("echo hi | grep hi\necho still here\n");
+    let session = run("echo hi && echo bye\necho still here\n");
     assert_eq!(session.stdout(), "still here\n");
 }
 
@@ -352,6 +351,120 @@ fn builtins_are_found_before_path() {
     let session = run("exit 7\necho unreachable\n");
     assert_eq!(session.stdout(), "");
     assert_eq!(session.code(), 7);
+}
+
+// ---- pipelines -------------------------------------------------------------
+
+#[test]
+fn a_pipeline_connects_two_commands() {
+    assert_eq!(run("echo hello | tr a-z A-Z\n").stdout(), "HELLO\n");
+}
+
+#[test]
+fn a_pipeline_can_be_longer_than_two() {
+    let session = run("printf '3\\n1\\n2\\n' | sort | head -2\n");
+    assert_eq!(session.stdout(), "1\n2\n");
+}
+
+#[test]
+fn the_pipeline_status_is_the_last_commands() {
+    // POSIX, and the reason `grep -q x | true` succeeds whatever grep found.
+    assert_eq!(run("sh -c 'exit 3' | sh -c 'exit 0'\n").code(), 0);
+    assert_eq!(run("sh -c 'exit 0' | sh -c 'exit 7'\n").code(), 7);
+}
+
+#[test]
+fn a_signal_in_the_last_stage_still_reports_128_plus_the_signal() {
+    assert_eq!(run("echo hi | sh -c 'kill -TERM $$'\n").code(), 143);
+}
+
+#[test]
+fn a_stage_that_does_not_exist_does_not_stop_the_others() {
+    let session = run("definitely-not-a-command | cat\necho done\n");
+    assert!(
+        session.stderr().contains("command not found"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+    // `cat` still ran, saw an immediate end-of-input, and exited cleanly.
+    assert_eq!(session.stdout(), "done\n");
+}
+
+#[test]
+fn a_failing_last_stage_sets_the_status() {
+    assert_eq!(run("echo hi | definitely-not-a-command\n").code(), 127);
+}
+
+#[test]
+fn the_reader_sees_end_of_input_when_the_writer_finishes() {
+    // If any copy of the write end were still open — in the shell or in
+    // another child — `cat` would block here and the test would hang.
+    assert_eq!(run("echo done | cat\n").stdout(), "done\n");
+}
+
+#[test]
+fn a_stage_that_exits_early_does_not_wedge_the_pipeline() {
+    let session = run("printf 'a\\nb\\nc\\n' | head -1\n");
+    assert_eq!(session.stdout(), "a\n");
+}
+
+#[test]
+fn children_inherit_the_default_action_for_sigpipe() {
+    // Rust sets SIGPIPE to SIG_IGN for its own process, and SIG_IGN survives
+    // exec. Without an explicit reset in the child, every program `rsh` runs
+    // would start with SIGPIPE ignored — so `yes | head` would never have its
+    // writer killed. 141 = 128 + SIGPIPE. See experiments/pipes.
+    assert_eq!(run("sh -c 'kill -PIPE $$'\n").code(), 141);
+}
+
+#[test]
+fn a_redirection_overrides_the_pipe() {
+    // POSIX applies redirections after the pipe is wired up, so the file wins
+    // and the next stage reads an immediate end-of-input.
+    let scratch = Scratch::new();
+    let session = scratch.run("echo hi > f.txt | cat\n");
+    assert_eq!(session.stdout(), "", "cat should have received nothing");
+    assert_eq!(scratch.read("f.txt"), "hi\n");
+}
+
+#[test]
+fn pipe_descriptors_do_not_leak_into_the_children() {
+    // Every child inherits a copy of every pipe. Close-on-exec plus `dup2`
+    // means each keeps only the ends it was given.
+    let session = run("sh -c 'echo leaked >&3' | cat\n");
+    assert_eq!(session.stdout(), "", "a pipe end leaked into the child");
+    assert!(
+        session
+            .stderr()
+            .to_lowercase()
+            .contains("bad file descriptor"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+}
+
+#[test]
+fn a_builtin_in_a_pipeline_is_refused_rather_than_run_in_the_shell() {
+    // Running it here would let `cd x | cat` move the real shell, which no
+    // other shell does. Doing it properly needs a subshell.
+    let session = run("cd /usr | cat\npwd\n");
+    assert_eq!(session.code(), 0);
+    assert!(
+        session.stderr().contains("builtin"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+    assert_ne!(
+        session.stdout().trim(),
+        "/usr",
+        "the shell changed directory anyway"
+    );
+}
+
+#[test]
+fn expansion_applies_to_every_stage() {
+    let session = run_with_env("echo $WORD | tr a-z A-Z\n", &[("WORD", "shouted")]);
+    assert_eq!(session.stdout(), "SHOUTED\n");
 }
 
 // ---- redirection -----------------------------------------------------------

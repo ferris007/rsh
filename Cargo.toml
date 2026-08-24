@@ -7,6 +7,7 @@ members = [
     "crates/rsh-executor",
     "experiments/fork_exec",
     "experiments/file_descriptors",
+    "experiments/pipes",
 ]
 
 [workspace.package]

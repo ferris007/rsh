@@ -121,12 +121,21 @@ Command A ─────────► Command B
                     Command C
 ```
 
-- [ ] Anonymous pipes
-- [ ] Multiple commands
-- [ ] Pipeline process management
-- [ ] Pipeline exit status
-- [ ] Broken-pipe handling
-- [ ] Backpressure experiments
+- [x] Anonymous pipes
+- [x] Multiple commands
+- [x] Pipeline process management
+- [x] Pipeline exit status
+- [x] Broken-pipe handling
+- [x] Backpressure experiments
+
+Notes: [`docs/pipelines.md`](pipelines.md), and
+[`experiments/pipes`](../experiments/pipes/), which exists because Rust ignores
+SIGPIPE before `main` and `SIG_IGN` survives `exec` — so every child of a
+Rust-written shell inherits it, and `yes | head` quietly loses the mechanism
+that stops the producer.
+
+Not implemented: builtins in a pipeline (needs a subshell, Phase 6),
+`set -o pipefail`, and `PIPESTATUS`.
 
 ---
 
