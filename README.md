@@ -1,4 +1,4 @@
-<h1 align="center">rsh</h1>
+<h1 align="center">whelk</h1>
 
 <p align="center">
   <strong>A Unix shell built from first principles in Rust.</strong><br>
@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ferris007/rsh/actions/workflows/ci.yml"><img src="https://github.com/ferris007/rsh/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/ferris007/whelk/actions/workflows/ci.yml"><img src="https://github.com/ferris007/whelk/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/rust-1.85%2B-orange.svg" alt="Rust 1.85+">
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="MIT OR Apache-2.0">
   <img src="https://img.shields.io/badge/tests-340-brightgreen.svg" alt="340 tests">
@@ -16,30 +16,30 @@
 ---
 
 ```console
-$ rsh
-rsh> printf '3\n1\n2\n' | sort | head -2 > out.txt
-rsh> cat < out.txt
+$ whelk
+whelk> printf '3\n1\n2\n' | sort | head -2 > out.txt
+whelk> cat < out.txt
 1
 2
-rsh> sleep 30 &
+whelk> sleep 30 &
 [1] 4242
-rsh> sleep 30
+whelk> sleep 30
 ^Z
 [2]+  Stopped                 sleep 30
-rsh> jobs
+whelk> jobs
 [1]-  Running                 sleep 30
 [2]+  Stopped                 sleep 30
-rsh> grepp pattern
-rsh: grepp: command not found
+whelk> grepp pattern
+whelk: grepp: command not found
       did you mean `grep`?
-rsh> exit
-rsh: there are stopped jobs
-rsh> exit
+whelk> exit
+whelk: there are stopped jobs
+whelk> exit
 ```
 
 ## What this is
 
-`rsh` is a **systems-engineering project**, not a Bash replacement. Its purpose
+`whelk` is a **systems-engineering project**, not a Bash replacement. Its purpose
 is to make the operating system's process model visible instead of hiding it:
 every feature is built on primitives that were understood first, and the
 reasoning is written down beside the code.
@@ -47,7 +47,7 @@ reasoning is written down beside the code.
 The goal is a shell **small enough to understand and deep enough to expose how
 Unix actually works**.
 
-> **Scope.** `rsh` runs real command lines and is pleasant to use, but it is not
+> **Scope.** `whelk` runs real command lines and is pleasant to use, but it is not
 > a drop-in shell. It has no `&&`, `||`, `;`, globbing, command substitution, or
 > multi-line input. See [Not implemented](#not-implemented) — the list is
 > deliberate and complete.
@@ -63,25 +63,25 @@ Unix actually works**.
 | **Signals** | `SIGINT`, `SIGTERM`, `SIGHUP`, `SIGCHLD`, `SIGWINCH`, graceful shutdown |
 | **Job control** | `jobs`, `fg`, `bg`, Ctrl-Z, process groups, terminal ownership |
 | **Terminal** | Mode save/restore, resize, raw mode — `vim` and `top` work inside it |
-| **Line editing** | History with prefix search, Tab completion, `~/.rshrc` |
+| **Line editing** | History with prefix search, Tab completion, `~/.whelkrc` |
 | **Event loop** | `epoll` on Linux, `kqueue` on BSD and macOS |
-| **Observability** | Criterion benchmarks, `RSH_TRACE`, allocation budgets |
+| **Observability** | Criterion benchmarks, `WHELK_TRACE`, allocation budgets |
 
 ## Install
 
 Requires **Rust 1.85** or newer. No system dependencies beyond a Unix kernel.
 
 ```console
-$ git clone https://github.com/ferris007/rsh
-$ cd rsh
+$ git clone https://github.com/ferris007/whelk
+$ cd whelk
 $ cargo build --release
-$ ./target/release/rsh
+$ ./target/release/whelk
 ```
 
 Or run it straight from the workspace:
 
 ```console
-$ cargo run --release -p rsh
+$ cargo run --release -p whelk
 ```
 
 ## Usage
@@ -118,19 +118,19 @@ unchanged.
 
 | | |
 | --- | --- |
-| `~/.rshrc` | Run at startup, one command per line, interactive sessions only |
-| `~/.rsh_history` | Persisted history, capped at 5,000 entries |
-| `RSH_TRACE=1` | Print timed, structured diagnostics to stderr |
+| `~/.whelkrc` | Run at startup, one command per line, interactive sessions only |
+| `~/.whelk_history` | Persisted history, capped at 5,000 entries |
+| `WHELK_TRACE=1` | Print timed, structured diagnostics to stderr |
 | `COLUMNS`, `LINES` | Set by the shell and kept current on resize |
 
 ### Command line
 
 ```console
-$ rsh                    # interactive
-$ rsh < script.sh        # non-interactive; no prompt, no job control
-$ rsh --benchmark        # measure this machine
-$ rsh --help             # usage, and the list of what is missing
-$ rsh --version          # the version
+$ whelk                    # interactive
+$ whelk < script.sh        # non-interactive; no prompt, no job control
+$ whelk --benchmark        # measure this machine
+$ whelk --help             # usage, and the list of what is missing
+$ whelk --version          # the version
 ```
 
 Commands come from standard input; there is no run-this-file form. An option
@@ -155,8 +155,8 @@ would be polishing a rounding error — which is why the regression tests count
 threshold loose enough to pass reliably is too loose to catch anything.
 
 ```console
-$ rsh --benchmark
-rsh benchmark
+$ whelk --benchmark
+whelk benchmark
 ────────────────────────
 startup          0.48 ms
 echo             1.01 ms
@@ -173,29 +173,29 @@ timed, are in [docs/performance.md](docs/performance.md).
 ## Architecture
 
 ```text
-   user input →  rsh              REPL, prompt, line editing
+   user input →  whelk              REPL, prompt, line editing
                   │
                   ▼
-                 rsh-parser       text → AST; never touches the OS
+                 whelk-parser       text → AST; never touches the OS
                   │
                   ▼
-                 rsh-executor     expansion, builtins, dispatch, shell state
+                 whelk-executor     expansion, builtins, dispatch, shell state
                   │
                   ▼
-                 rsh-process      fork / exec / wait, pipes, signals — all the `unsafe`
+                 whelk-process      fork / exec / wait, pipes, signals — all the `unsafe`
                   │
                   ▼
                  kernel
 
-   alongside:    rsh-job          the job table and process groups
-                 rsh-terminal     modes, size, ownership
-                 rsh-line         editing, history, completion
-                 rsh-event        readiness over epoll and kqueue
-                 rsh-trace        timed diagnostics
+   alongside:    whelk-job          the job table and process groups
+                 whelk-terminal     modes, size, ownership
+                 whelk-line         editing, history, completion
+                 whelk-event        readiness over epoll and kqueue
+                 whelk-trace        timed diagnostics
 ```
 
-The split is not decoration. `rsh-parser` turns a string into a tree and can be
-tested exhaustively without spawning anything; `rsh-process` holds every
+The split is not decoration. `whelk-parser` turns a string into a tree and can be
+tested exhaustively without spawning anything; `whelk-process` holds every
 `unsafe` block that touches the process table, so the argument for the
 fork/exec window fits in one file.
 

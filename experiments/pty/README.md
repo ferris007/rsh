@@ -88,7 +88,7 @@ A shell decides what a program's stdout is attached to. Every pipeline it builds
 silently switches every stage from line buffering to full buffering, and the
 user sees a program that "stopped working" when nothing of the sort happened.
 
-`rsh` cannot fix this — the choice is made inside each child, by a library the
+`whelk` cannot fix this — the choice is made inside each child, by a library the
 shell does not control. But it is worth knowing that the shell is the thing that
 causes it.
 

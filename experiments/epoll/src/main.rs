@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use nix::libc;
 use nix::sys::signal::{raise, sigaction, SaFlags, SigAction, SigHandler, SigSet, Signal};
 use nix::unistd::pipe;
-use rsh_event::{Poller, Token};
+use whelk_event::{Poller, Token};
 
 /// How long the loop is willing to wait for something to happen.
 ///

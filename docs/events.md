@@ -40,7 +40,7 @@ and all of which were previously impossible to add.
 
 ## This crate is a very small `mio`
 
-`rsh-event` is about two hundred lines: register a descriptor, wait, get tokens
+`whelk-event` is about two hundred lines: register a descriptor, wait, get tokens
 back. That is the layer Tokio is built on.
 
 Writing it is the point. Your roadmap says not to reach for Tokio before

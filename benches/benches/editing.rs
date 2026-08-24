@@ -6,8 +6,8 @@
 //! that way as the line and the history grow.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use rsh_line::{Editor, History, Key, NoCompletion};
 use std::hint::black_box;
+use whelk_line::{Editor, History, Key, NoCompletion};
 
 fn history_of(count: usize) -> History {
     let mut history = History::new(10_000);

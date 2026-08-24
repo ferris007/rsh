@@ -3,4 +3,4 @@
 *.profraw
 perf.data*
 flamegraph.svg
-.rsh_history
+.whelk_history

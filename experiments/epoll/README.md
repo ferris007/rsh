@@ -97,7 +97,7 @@ flags say what happened.
 - **`pselect`/`ppoll`** take a signal mask atomically, closing the same race a
   different way. `pselect` is POSIX; `ppoll` is not.
 
-`rsh` uses the self-pipe because it is the one answer that works everywhere and
+`whelk` uses the self-pipe because it is the one answer that works everywhere and
 needs nothing from the platform beyond a pipe. See
 [`docs/events.md`](../../docs/events.md).
 

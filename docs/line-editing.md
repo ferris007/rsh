@@ -6,7 +6,7 @@ deliberately the one with the least to say about Unix.
 
 ## What the terminal already does
 
-Before any of this existed, `rsh` had working backspace, Ctrl-U, Ctrl-W,
+Before any of this existed, `whelk` had working backspace, Ctrl-U, Ctrl-W,
 Ctrl-C, and Ctrl-D. None of it was implemented. In **canonical** mode the
 terminal driver buffers a line, handles the erase keys itself, echoes what is
 typed, and turns Ctrl-C into a signal — a program's `read` only returns when
@@ -42,7 +42,7 @@ This is not tidiness for its own sake. A line editor is mostly edge cases —
 word deletion at the start of a line, history navigation with a half-typed line
 held back, completing a word that is not the last one — and each is a two-line
 test when the editor is a state machine, or a pseudoterminal session when it is
-not. The 47 unit tests in `rsh-line` run in under a millisecond; the 14 that
+not. The 47 unit tests in `whelk-line` run in under a millisecond; the 14 that
 genuinely need a terminal take six seconds.
 
 ## Decoding keys
@@ -55,7 +55,7 @@ This is why Escape feels laggy in terminal programs: `ESC` alone and `ESC`
 starting a sequence are the same first byte, so a program must either wait or
 guess.
 
-`rsh` takes the third option. The decoder is handed a buffer and reports how
+`whelk` takes the third option. The decoder is handed a buffer and reports how
 much it consumed, so an incomplete sequence stays there until more bytes arrive.
 No timers, no guessing, and the ambiguity never has to be resolved.
 
@@ -124,8 +124,8 @@ A shell that only says `command not found` is telling the user something they
 already know. The useful part is which of `sl`, `ls`, and `lz` they meant.
 
 ```console
-rsh> grepp pattern
-rsh: grepp: command not found
+whelk> grepp pattern
+whelk: grepp: command not found
       did you mean `grep`?
 ```
 
@@ -144,7 +144,7 @@ the wrong place.
 
 ## Configuration
 
-`~/.rshrc`, read at startup, one command per line, each run through exactly the
+`~/.whelkrc`, read at startup, one command per line, each run through exactly the
 same code path a typed command takes. There is no configuration language and no
 second parser to disagree with the real one.
 

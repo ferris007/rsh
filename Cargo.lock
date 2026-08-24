@@ -298,85 +298,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
-name = "rsh"
-version = "0.1.2"
-dependencies = [
- "nix",
- "rsh-event",
- "rsh-executor",
- "rsh-line",
- "rsh-terminal",
-]
-
-[[package]]
-name = "rsh-benches"
-version = "0.1.2"
-dependencies = [
- "criterion",
- "rsh-executor",
- "rsh-line",
- "rsh-parser",
- "rsh-process",
-]
-
-[[package]]
-name = "rsh-event"
-version = "0.1.2"
-dependencies = [
- "nix",
-]
-
-[[package]]
-name = "rsh-executor"
-version = "0.1.2"
-dependencies = [
- "nix",
- "rsh-job",
- "rsh-parser",
- "rsh-process",
- "rsh-terminal",
- "rsh-trace",
-]
-
-[[package]]
-name = "rsh-job"
-version = "0.1.2"
-dependencies = [
- "nix",
- "rsh-process",
- "rsh-terminal",
-]
-
-[[package]]
-name = "rsh-line"
-version = "0.1.2"
-dependencies = [
- "rsh-terminal",
-]
-
-[[package]]
-name = "rsh-parser"
-version = "0.1.2"
-
-[[package]]
-name = "rsh-process"
-version = "0.1.2"
-dependencies = [
- "nix",
-]
-
-[[package]]
-name = "rsh-terminal"
-version = "0.1.2"
-dependencies = [
- "nix",
-]
-
-[[package]]
-name = "rsh-trace"
-version = "0.1.2"
-
-[[package]]
 name = "same-file"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -483,6 +404,85 @@ dependencies = [
 ]
 
 [[package]]
+name = "whelk"
+version = "0.1.2"
+dependencies = [
+ "nix",
+ "whelk-event",
+ "whelk-executor",
+ "whelk-line",
+ "whelk-terminal",
+]
+
+[[package]]
+name = "whelk-benches"
+version = "0.1.2"
+dependencies = [
+ "criterion",
+ "whelk-executor",
+ "whelk-line",
+ "whelk-parser",
+ "whelk-process",
+]
+
+[[package]]
+name = "whelk-event"
+version = "0.1.2"
+dependencies = [
+ "nix",
+]
+
+[[package]]
+name = "whelk-executor"
+version = "0.1.2"
+dependencies = [
+ "nix",
+ "whelk-job",
+ "whelk-parser",
+ "whelk-process",
+ "whelk-terminal",
+ "whelk-trace",
+]
+
+[[package]]
+name = "whelk-job"
+version = "0.1.2"
+dependencies = [
+ "nix",
+ "whelk-process",
+ "whelk-terminal",
+]
+
+[[package]]
+name = "whelk-line"
+version = "0.1.2"
+dependencies = [
+ "whelk-terminal",
+]
+
+[[package]]
+name = "whelk-parser"
+version = "0.1.2"
+
+[[package]]
+name = "whelk-process"
+version = "0.1.2"
+dependencies = [
+ "nix",
+]
+
+[[package]]
+name = "whelk-terminal"
+version = "0.1.2"
+dependencies = [
+ "nix",
+]
+
+[[package]]
+name = "whelk-trace"
+version = "0.1.2"
+
+[[package]]
 name = "winapi"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -533,7 +533,7 @@ name = "xp-epoll"
 version = "0.1.2"
 dependencies = [
  "nix",
- "rsh-event",
+ "whelk-event",
 ]
 
 [[package]]

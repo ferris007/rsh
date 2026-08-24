@@ -13,7 +13,7 @@ the window after `fork`, for a related reason. In Rust that rules out
 `println!`, formatting, allocation, locks, and anything that might reach one of
 those a few calls down.
 
-So `rsh`'s handlers do exactly one thing: store into a `static` atomic and
+So `whelk`'s handlers do exactly one thing: store into a `static` atomic and
 return.
 
 ```rust
@@ -62,7 +62,7 @@ Not the shell specifically. The terminal driver sends `SIGINT` to the
      ▼
   ┌───────────────────────────────┐
   │   cat  ──►  grep  ──►  sort   │   all three, at once
-  │   ...and rsh, which is in the │
+  │   ...and whelk, which is in the │
   │   same group today            │
   └───────────────────────────────┘
 ```
@@ -71,7 +71,7 @@ One keystroke stops an entire pipeline with no bookkeeping, because the stages
 share a group. Demonstrated in
 [`experiments/signals`](../experiments/signals/).
 
-`rsh` does not create process groups yet. Every child shares the shell's, which
+`whelk` does not create process groups yet. Every child shares the shell's, which
 is *why* Ctrl-C reaches a foreground command at all right now — and equally why
 there is no way to shield a background job from it. Phase 6 adds `setpgid`.
 
@@ -87,7 +87,7 @@ that line *is* the response to Ctrl-C.
 
 This has a consequence for how the shell reads input. `BufRead::read_line`
 treats `EINTR` as "try again" and loops internally, which hides exactly the
-event the shell needs. So `rsh` reads the descriptor directly, through a
+event the shell needs. So `whelk` reads the descriptor directly, through a
 `File` over descriptor 0 — `File::read` is a bare `read(2)` and reports `EINTR`
 — and does its own line buffering.
 
@@ -110,7 +110,7 @@ what every other shell reports and `echo $?` should not lie about it.
 `waitpid` does not return for a child that has been *stopped* rather than
 terminated — not unless you ask, with `WUNTRACED`.
 
-Before Phase 5, `rsh` did not ask. Pressing Ctrl-Z on a foreground command left
+Before Phase 5, `whelk` did not ask. Pressing Ctrl-Z on a foreground command left
 the child suspended and the shell blocked forever on a process that would never
 finish: no prompt, no output, no way back short of killing the shell from
 another terminal.
@@ -118,12 +118,12 @@ another terminal.
 Having *seen* the stop, a shell has two options: keep the job somewhere and take
 the terminal back, or continue the child and go on waiting. The first is job
 control, and it needs a job table, process groups, and terminal ownership —
-Phases 6 and 7. Until then `rsh` does the second, and says so:
+Phases 6 and 7. Until then `whelk` does the second, and says so:
 
 ```console
-rsh> sleep 30
+whelk> sleep 30
 ^Z
-rsh: sleep: stopped by SIGTSTP; continuing (job control is phase 6)
+whelk: sleep: stopped by SIGTSTP; continuing (job control is phase 6)
 ```
 
 ### An aside worth knowing
@@ -136,7 +136,7 @@ left able to resume it.
 This is easy to trip over in tests. Under a CI runner the shell's process group
 is orphaned, so a test that stops a child with `SIGTSTP` quietly stops testing
 anything: the signal vanishes, the child runs to completion, and the assertions
-about its output still pass. `rsh`'s tests use `SIGSTOP`, which cannot be
+about its output still pass. `whelk`'s tests use `SIGSTOP`, which cannot be
 caught, blocked, or discarded.
 
 Continuing is not the right long-term answer. It is the right answer while there

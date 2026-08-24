@@ -28,7 +28,7 @@ amount of work before a program sees anything:
 - it echoes what is typed;
 - it turns Ctrl-C into `SIGINT`, Ctrl-Z into `SIGTSTP`, Ctrl-D into end-of-file.
 
-This is why `rsh` had working backspace and Ctrl-C from Phase 1, before a line
+This is why `whelk` had working backspace and Ctrl-C from Phase 1, before a line
 of code was written for either. The line editing you get for free is the
 driver's.
 
@@ -36,7 +36,7 @@ In **raw** mode none of it happens. Every keystroke arrives immediately, nothing
 is echoed, and Ctrl-C is the byte `0x03`. Editors need this; so does any shell
 implementing its own history and arrow keys, which is Phase 8.
 
-`rsh-terminal` provides raw mode now and the REPL does not use it yet. That is
+`whelk-terminal` provides raw mode now and the REPL does not use it yet. That is
 deliberate: an untested capability adopted a phase later is a capability
 debugged a phase later. It is exercised through a pseudoterminal, because a
 function that operates on descriptor 0 needs a process whose descriptor 0 is a
@@ -63,7 +63,7 @@ The familiar symptom is a terminal that stops echoing, and the usual remedy is
 to type `reset` blind. A shell can do better, because it is still running.
 
 `dash` does not do this. Feeding both shells `stty -echo` followed by another
-command shows it directly: under `rsh` the second command is echoed as you type
+command shows it directly: under `whelk` the second command is echoed as you type
 it, under `dash` it is not.
 
 ## Resuming has to undo the undoing
@@ -118,13 +118,13 @@ would leave the user with no echo and no working Ctrl-C.
 
 ## Not implemented
 
-- **Alternate screen and cursor handling.** `rsh` does not draw; programs that
+- **Alternate screen and cursor handling.** `whelk` does not draw; programs that
   do are on their own, which is correct.
 - **Terminal capability queries.** No `terminfo`, no `TERM` interpretation.
   Phase 8 needs some of this for cursor movement.
 - **`SIGWINCH` forwarding.** The kernel already delivers it to the foreground
   group, so a running job hears about resizes directly. A *stopped* job does
   not, and is not told when resumed.
-- **PTY allocation.** `rsh` runs children on its own terminal. Allocating a pty
+- **PTY allocation.** `whelk` runs children on its own terminal. Allocating a pty
   per job is what `script`, `tmux`, and CI runners do, and it is a different
   program.

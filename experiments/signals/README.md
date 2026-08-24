@@ -63,7 +63,7 @@ signal goes to a group.
 **Ctrl-C reaches the whole pipeline.** No bookkeeping required. The stages were
 put in one group, so one signal covers them.
 
-**The shell must not die with them.** `rsh` is in that group too — it is the
+**The shell must not die with them.** `whelk` is in that group too — it is the
 process the terminal is talking to. So it installs a handler for `SIGINT`
 rather than relying on being missed. Note the ordering in the program above:
 the parent ignores the signal only *after* forking, because `SIG_IGN` is
@@ -80,7 +80,7 @@ foreground process group, set with `tcsetpgrp`. Running a job in the foreground
 *is* handing it that slot; suspending it is taking the slot back. Job control
 turns out to be almost entirely this one piece of state.
 
-## Where `rsh` is today
+## Where `whelk` is today
 
 Phase 5 does the signal half: the shell handles `SIGINT`, `SIGTERM`, and
 `SIGHUP`, survives Ctrl-C, reports 130, and notices a stopped child instead of

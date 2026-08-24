@@ -29,12 +29,12 @@ finished](#what-is-not-finished) at the end.
 ## Phase 1 — Interactive shell
 
 ```text
-$ rsh
-rsh> echo hello
+$ whelk
+whelk> echo hello
 hello
-rsh> pwd
+whelk> pwd
 /home/user
-rsh>
+whelk>
 ```
 
 - [x] Interactive prompt
@@ -211,7 +211,7 @@ Not implemented: builtins as jobs (needs a subshell), `disown`, `wait`,
 ## Phase 7 — Terminal management
 
 ```text
-rsh
+whelk
  │
  ├── TTY
  │
@@ -298,7 +298,7 @@ Notes: [`docs/events.md`](events.md), and [`experiments/epoll`](../experiments/e
 which reproduces the race that makes a signal flag insufficient — 800ms slept
 through with a flag alone, 0ms with a self-pipe.
 
-`rsh-event` is about two hundred lines and is a very small `mio`, which is the
+`whelk-event` is about two hundred lines and is a very small `mio`, which is the
 layer Tokio sits on. An async runtime is a scheduler above this line; below it
 is a poller saying which descriptors are ready.
 
@@ -318,7 +318,7 @@ which is the larger remaining piece.
 ## Phase 10 — Performance & observability
 
 ```text
-rsh benchmark
+whelk benchmark
 ────────────────────────
 startup       1.82 ms
 echo          2.14 ms
@@ -345,7 +345,7 @@ The benchmarks found something nobody had timed — "did you mean", added in Pha
 WSL's Windows filesystem bridge rather than to the algorithm, and **left alone**.
 That is what measuring before optimising looks like when the answer is "don't".
 
-**tracing** is `rsh-trace`, not the crate. A shell's most interesting moment is
+**tracing** is `whelk-trace`, not the crate. A shell's most interesting moment is
 the window between `fork` and `exec`, where nothing may allocate, and a
 subscriber that formats an event into a `String` is exactly what must not happen
 there.
@@ -380,7 +380,7 @@ and a recorded observation. All eight exist; see
 Seven of the eight came out of a bug found while building the phase they
 document. That was not the plan; it is what happened every time.
 
-The exception is `namespaces`, which answers nothing `rsh` needed to know. It is
+The exception is `namespaces`, which answers nothing `whelk` needed to know. It is
 here because it is the sharpest form of something the rest of the project keeps
 running into: a process id is a fact about a table, not about a process.
 
@@ -420,7 +420,7 @@ Not roadmap items — the honest list.
 - **Lines longer than the terminal is wide.** The editor redraws one row.
   Fixing it needs the display width of each character, which is a harder problem
   than it sounds.
-- **Extracting `rsh-job` and `rsh-terminal` as crates.** They were kept free of
+- **Extracting `whelk-job` and `whelk-terminal` as crates.** They were kept free of
   the rest for exactly this, and "manage a group of child processes without
   losing the terminal" is a problem more programs have than have a shell to
   solve it with.

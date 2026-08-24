@@ -1,6 +1,6 @@
 [package]
-name = "rsh-benches"
-description = "Benchmarks for the rsh shell"
+name = "whelk-benches"
+description = "Benchmarks for the whelk shell"
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -13,10 +13,10 @@ authors.workspace = true
 
 [dev-dependencies]
 criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
-rsh-executor = { workspace = true }
-rsh-line = { workspace = true }
-rsh-parser = { workspace = true }
-rsh-process = { workspace = true }
+whelk-executor = { workspace = true }
+whelk-line = { workspace = true }
+whelk-parser = { workspace = true }
+whelk-process = { workspace = true }
 
 [[bench]]
 name = "parsing"

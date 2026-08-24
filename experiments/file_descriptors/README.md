@@ -3,7 +3,7 @@
 > **Question:** `dup2` normally clears close-on-exec on the descriptor it
 > writes to. What happens when the source and the target are the same number?
 
-This experiment exists because the answer caused a real bug in `rsh`, in the
+This experiment exists because the answer caused a real bug in `whelk`, in the
 commit that added redirection.
 
 ## The setup
@@ -71,7 +71,7 @@ The failure mode is the bad kind: nothing crashes, no error reaches the user,
 and the redirection simply does not happen. `3> out.txt` produced an empty
 file, and the child's error message went wherever stderr happened to point.
 
-`rsh` handles it in `crates/rsh-process/src/redirect.rs`: when source and
+`whelk` handles it in `crates/whelk-process/src/redirect.rs`: when source and
 target are equal it calls `fcntl(fd, F_SETFD, 0)` instead of `dup2`, which
 clears the flag directly. `fcntl` is async-signal-safe, so it is legal in the
 window between `fork` and `exec` where this code runs.

@@ -10,19 +10,19 @@ How a line of text becomes a tree, and where the shell decides what things mean.
                  ▼
    ┌──────────────────────────┐
    │  lexer                   │   characters → tokens
-   │  rsh-parser::lexer       │   quote removal, escapes,
+   │  whelk-parser::lexer       │   quote removal, escapes,
    └────────────┬─────────────┘   `$NAME` recognised (not resolved)
                 │
                 ▼
    ┌──────────────────────────┐
    │  parser                  │   tokens → Pipeline / Command / Redirect
-   │  rsh-parser::parser      │
+   │  whelk-parser::parser      │
    └────────────┬─────────────┘
                 │            ── crate boundary; nothing above has touched the OS
                 ▼
    ┌──────────────────────────┐
    │  expansion               │   words → argv
-   │  rsh-executor::expand    │   `$HOME` resolved, fields split
+   │  whelk-executor::expand    │   `$HOME` resolved, fields split
    └──────────────────────────┘
 ```
 
@@ -50,7 +50,7 @@ There is also a correctness argument. In POSIX, expansion genuinely is an
 execution-time step: it happens after parsing, once per execution, and its
 result depends on state that earlier commands in the same line may have
 changed. A shell that expanded during parsing would have to explain why
-`X=1; echo $X` sees the old value. `rsh` cannot run `;` yet, but the design
+`X=1; echo $X` sees the old value. `whelk` cannot run `;` yet, but the design
 should not be the reason.
 
 ## Why a word is not a string
@@ -111,8 +111,8 @@ Every token, word, and error carries a byte range. It costs two `usize` per
 node and it buys this:
 
 ```console
-rsh> echo hi > out.txt
-rsh: redirection is not implemented yet (roadmap phase 3)
+whelk> echo hi > out.txt
+whelk: redirection is not implemented yet (roadmap phase 3)
   echo hi > out.txt
           ^^^^^^^^^
 ```
@@ -148,4 +148,4 @@ oversight: a POSIX shell leaves a pattern unchanged when it matches nothing, so
 an unexpanded `*.txt` is a behaviour a real shell has too. It is still a gap,
 just not a lie.
 
-[`WordPart`]: ../crates/rsh-parser/src/word.rs
+[`WordPart`]: ../crates/whelk-parser/src/word.rs

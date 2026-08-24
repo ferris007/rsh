@@ -1,6 +1,6 @@
 # Process model
 
-How `rsh` turns a line of text into a running program, and why the code is
+How `whelk` turns a line of text into a running program, and why the code is
 shaped the way it is.
 
 ## `fork` + `exec`, and why they are two calls
@@ -12,7 +12,7 @@ dispositions happens in the gap between them — in the child, after it exists
 but before it becomes the target program.
 
 ```text
-parent (rsh)                        child
+parent (whelk)                        child
 ────────────                        ─────
 resolve PATH
 build argv as C strings
@@ -46,7 +46,7 @@ under load, in a process that no longer has a terminal to complain to.
 
 [async-signal-safe]: https://man7.org/linux/man-pages/man7/signal-safety.7.html
 
-## How `rsh` stays out of trouble
+## How `whelk` stays out of trouble
 
 Everything fallible or allocating happens **before** the fork:
 
@@ -65,14 +65,14 @@ The `_exit` half of that is demonstrated, not just asserted:
 nothing, has it terminate both ways, and counts how many times the parent's
 buffered output reaches the terminal.
 
-This is why `rsh-process` is a separate crate: the invariant is auditable
+This is why `whelk-process` is a separate crate: the invariant is auditable
 because the code that must uphold it is small and lives in one place. Later
 phases (redirection, process groups) add work to the window, and every
 addition has to answer the same question — *is this async-signal-safe?*
 
 ## Exit status
 
-`waitpid` yields an encoded `int`, not a number the user typed. `rsh` decodes
+`waitpid` yields an encoded `int`, not a number the user typed. `whelk` decodes
 it into a real type rather than passing the raw value around:
 
 | Outcome                | Status                | What the shell reports |
@@ -83,7 +83,7 @@ it into a real type rather than passing the raw value around:
 
 The `128 + signal` convention is what Bash and POSIX shells report, so
 `command || echo $?` behaves the way scripts expect. Two failures are reserved
-by convention and `rsh` honours them:
+by convention and `whelk` honours them:
 
 - `127` — command not found
 - `126` — found, but not executable
@@ -92,7 +92,7 @@ These are not arbitrary: tools in the wild branch on them.
 
 ## `PATH` lookup
 
-`execvp` would search `PATH` itself, but `rsh` resolves the path in the parent
+`execvp` would search `PATH` itself, but `whelk` resolves the path in the parent
 instead. Doing it early means the "command not found" case is an ordinary
 `Result` in normal Rust — reported with a message, `127`, and no child process
 at all — rather than an error discovered inside the window, where the only
@@ -102,7 +102,7 @@ Lookup follows the POSIX rules: a name containing `/` is used as-is and never
 searched for; otherwise each `PATH` entry is tried in order and the first
 entry that is a regular file with execute permission wins. An empty entry
 means the current directory, which is a genuine POSIX rule and a genuine
-security footgun — `rsh` implements it and says so here rather than silently
+security footgun — `whelk` implements it and says so here rather than silently
 diverging.
 
 ## Descriptors in the window

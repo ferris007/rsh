@@ -1,15 +1,15 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/rsh",
-    "crates/rsh-parser",
-    "crates/rsh-process",
-    "crates/rsh-executor",
-    "crates/rsh-job",
-    "crates/rsh-terminal",
-    "crates/rsh-line",
-    "crates/rsh-event",
-    "crates/rsh-trace",
+    "crates/whelk",
+    "crates/whelk-parser",
+    "crates/whelk-process",
+    "crates/whelk-executor",
+    "crates/whelk-job",
+    "crates/whelk-terminal",
+    "crates/whelk-line",
+    "crates/whelk-event",
+    "crates/whelk-trace",
     "benches",
     "experiments/fork_exec",
     "experiments/file_descriptors",
@@ -26,18 +26,18 @@ version = "0.1.2"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/ferris007/rsh"
-authors = ["rsh contributors"]
+repository = "https://github.com/ferris007/whelk"
+authors = ["whelk contributors"]
 
 [workspace.dependencies]
-rsh-parser = { path = "crates/rsh-parser" }
-rsh-process = { path = "crates/rsh-process" }
-rsh-job = { path = "crates/rsh-job" }
-rsh-terminal = { path = "crates/rsh-terminal" }
-rsh-line = { path = "crates/rsh-line" }
-rsh-event = { path = "crates/rsh-event" }
-rsh-trace = { path = "crates/rsh-trace" }
-rsh-executor = { path = "crates/rsh-executor" }
+whelk-parser = { path = "crates/whelk-parser" }
+whelk-process = { path = "crates/whelk-process" }
+whelk-job = { path = "crates/whelk-job" }
+whelk-terminal = { path = "crates/whelk-terminal" }
+whelk-line = { path = "crates/whelk-line" }
+whelk-event = { path = "crates/whelk-event" }
+whelk-trace = { path = "crates/whelk-trace" }
+whelk-executor = { path = "crates/whelk-executor" }
 
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
 # `unsafe` in this project is limited to the places where the *semantics* are

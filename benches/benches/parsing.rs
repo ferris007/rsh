@@ -5,8 +5,8 @@
 //! stable enough for a benchmark to be worth watching over time.
 
 use criterion::{criterion_group, criterion_main, Criterion};
-use rsh_executor::{expand_all, MapEnv};
 use std::hint::black_box;
+use whelk_executor::{expand_all, MapEnv};
 
 /// Lines chosen to span what a shell actually sees: a bare command, a command
 /// with arguments, quoting, expansion, and a pipeline with redirection.
@@ -24,7 +24,7 @@ fn parsing(c: &mut Criterion) {
 
     for (name, line) in LINES {
         group.bench_function(*name, |b| {
-            b.iter(|| rsh_parser::parse(black_box(line)).expect("should parse"));
+            b.iter(|| whelk_parser::parse(black_box(line)).expect("should parse"));
         });
     }
 
@@ -46,7 +46,7 @@ fn expansion(c: &mut Criterion) {
         ("quoted", r#"echo "$LIST""#),
         ("split", "echo $LIST"),
     ] {
-        let pipeline = rsh_parser::parse(line).unwrap().unwrap();
+        let pipeline = whelk_parser::parse(line).unwrap().unwrap();
         let words = pipeline.commands()[0].words().to_vec();
 
         group.bench_function(name, |b| {
@@ -70,7 +70,7 @@ fn throughput(c: &mut Criterion) {
     c.bench_function("parse/script-100-lines", |b| {
         b.iter(|| {
             for line in black_box(&script).lines() {
-                let _ = rsh_parser::parse(line);
+                let _ = whelk_parser::parse(line);
             }
         });
     });

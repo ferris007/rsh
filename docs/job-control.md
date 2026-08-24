@@ -28,7 +28,7 @@ the explanation for why `cat &` stops the instant it starts.
 ## Every job gets a group
 
 ```text
-   rsh                          process group 4200
+   whelk                          process group 4200
     │
     ├── [1]  cat f | grep x     process group 4242   ← foreground
     │         │        │
@@ -67,7 +67,7 @@ default action for `SIGTTOU` is to stop the process — so a shell that did
 nothing would freeze itself at the exact moment the user pressed Ctrl-Z, leaving
 a stopped terminal and no shell able to unstop it.
 
-`rsh` therefore ignores `SIGTSTP`, `SIGTTIN`, and `SIGTTOU`.
+`whelk` therefore ignores `SIGTSTP`, `SIGTTIN`, and `SIGTTOU`.
 
 And then resets all three to their defaults in every child, because **`SIG_IGN`
 is inherited across `exec`**. Without the reset, the shell's self-protection
@@ -125,9 +125,9 @@ supporting `%1` at all — it is what people actually type.
 Only *stopped* jobs earn a warning:
 
 ```console
-rsh> exit
-rsh: there are stopped jobs
-rsh> exit
+whelk> exit
+whelk: there are stopped jobs
+whelk> exit
 $
 ```
 
@@ -139,7 +139,7 @@ second attempt through; the decision stays with the user.
 ## No terminal, no job control
 
 A shell reading a script from a pipe has no terminal to hand over, nobody to
-type Ctrl-Z, and no reason to isolate jobs into groups. `rsh` switches job
+type Ctrl-Z, and no reason to isolate jobs into groups. `whelk` switches job
 control off entirely in that case rather than half-performing it: children run
 in the shell's own process group, exactly as they did before this phase.
 

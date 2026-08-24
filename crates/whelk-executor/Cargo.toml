@@ -1,0 +1,20 @@
+[package]
+name = "whelk-executor"
+description = "Command execution and builtins for the whelk shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+nix = { workspace = true }
+whelk-job = { workspace = true }
+whelk-parser = { workspace = true }
+whelk-process = { workspace = true }
+whelk-terminal = { workspace = true }
+whelk-trace = { workspace = true }
+
+[lints]
+workspace = true

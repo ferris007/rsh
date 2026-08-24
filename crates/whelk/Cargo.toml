@@ -1,0 +1,50 @@
+[package]
+name = "whelk"
+description = "A Unix shell built from first principles in Rust"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+whelk-event = { workspace = true }
+whelk-executor = { workspace = true }
+whelk-line = { workspace = true }
+whelk-terminal = { workspace = true }
+
+nix = { workspace = true }
+
+[dev-dependencies]
+# Only the tests need to send signals; the shell itself reaches the process
+# table through whelk-process.
+nix = { workspace = true }
+
+[lints]
+workspace = true
+
+# Debian packaging, built with `cargo deb`.
+#
+# No `conflicts` line, and that is the point of the name. This shell was called
+# `whelk` until 0.1.2, which collided with the BSD remote-shell client that has
+# owned `/usr/bin/whelk` since long before this project existed -- Debian still
+# ships it as `whelk-client` and `whelk-redone-client`, so the package had to
+# declare a conflict and hope. `/usr/bin/whelk` belongs to nobody.
+#
+# The binary is deliberately left for cargo-deb to find on its own: naming it
+# in `assets` overrides the handling that strips it, and `debug = 1` in the
+# release profile makes that a 6.7M difference.
+[package.metadata.deb]
+maintainer = "ferris007 <woremixituki@gmail.com>"
+copyright = "whelk contributors, MIT OR Apache-2.0"
+section = "shells"
+priority = "optional"
+extended-description = '''
+A Unix shell built from first principles: parsing, expansion, redirection,
+pipelines, signals, job control, terminal handling, line editing, and an
+event loop, each built on primitives understood first and explained beside
+the code.
+
+Not a drop-in shell. It has no &&, ||, ;, globbing, command substitution, or
+multi-line input, and refuses them by name rather than misreading them.'''

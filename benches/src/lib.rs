@@ -1,4 +1,4 @@
-//! Benchmarks for `rsh`.
+//! Benchmarks for `whelk`.
 //!
 //! A package of its own so that `criterion` — a large dependency tree next to a
 //! workspace whose only other one wraps libc — stays out of the shell's own

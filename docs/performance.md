@@ -70,9 +70,9 @@ Splitting the cause from the symptom:
 
 ```console
 $ # this machine's PATH: 32 entries, 17 of them Windows directories
-$ time rsh -c 'grepp x'          # full PATH
+$ time whelk -c 'grepp x'          # full PATH
 0.085s
-$ time PATH=$LINUX_ONLY rsh ...  # 15 entries, 2255 executables
+$ time PATH=$LINUX_ONLY whelk ...  # 15 entries, 2255 executables
 0.014s
 ```
 
@@ -86,13 +86,13 @@ same machine pays the same enumeration cost for its own completion. Measuring it
 and deciding not to act is the whole of "measure before optimizing" — the
 alternative was optimising a 14 ms path on the strength of an 85 ms number.
 
-## `rsh --benchmark`
+## `whelk --benchmark`
 
 For a figure comparable against another shell in a few seconds:
 
 ```console
-$ rsh --benchmark
-rsh benchmark
+$ whelk --benchmark
+whelk benchmark
 ────────────────────────
 startup          0.48 ms
 echo             1.01 ms
@@ -153,8 +153,8 @@ change.
 ## Tracing
 
 ```console
-$ RSH_TRACE=1 rsh
-rsh> echo hi | tr a-z A-Z
+$ WHELK_TRACE=1 whelk
+whelk> echo hi | tr a-z A-Z
 trace  parse             14.4µs  input=20
 trace  expand             2.6µs  words=2
 trace  expand             657ns  words=3
@@ -165,12 +165,12 @@ HI
 trace  wait              19.9ms
 ```
 
-Off unless `RSH_TRACE` is set; one relaxed atomic load per call site when off.
+Off unless `WHELK_TRACE` is set; one relaxed atomic load per call site when off.
 
 The shell does not use the `tracing` crate, and the reason is specific to this
 program: the most interesting moment in a shell is the window between `fork` and
 `exec`, where **nothing may allocate**. A subscriber that formats an event into
-a `String` is exactly what must not happen there. What `rsh-trace` offers
+a `String` is exactly what must not happen there. What `whelk-trace` offers
 instead is a rule it can keep — spans are opened and closed in the parent, never
 across a fork. Adopting `tracing` later would mean rewriting two macro bodies;
 the call sites would not change.
@@ -196,7 +196,7 @@ full debug info. Expect the graph to be almost entirely kernel time under
 **Syscall counts**
 
 ```console
-$ strace -c -f rsh -c 'echo hi | grep h'
+$ strace -c -f whelk -c 'echo hi | grep h'
 ```
 
 The count that matters is per command: a shell doing thirty syscalls to run one
@@ -206,7 +206,7 @@ interesting happens in a child.
 **Allocation profiling**
 
 ```console
-$ valgrind --tool=dhat ./target/release/rsh -c 'echo hi'
+$ valgrind --tool=dhat ./target/release/whelk -c 'echo hi'
 ```
 
 The counting allocator above answers "how many"; DHAT answers "which, and how

@@ -11,7 +11,7 @@ authors.workspace = true
 
 [dependencies]
 nix = { workspace = true }
-rsh-event = { workspace = true }
+whelk-event = { workspace = true }
 
 [lints]
 workspace = true

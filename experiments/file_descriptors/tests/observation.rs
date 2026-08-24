@@ -10,7 +10,7 @@ use std::process::Command;
 const XP: &str = env!("CARGO_BIN_EXE_xp-file-descriptors");
 
 fn run() -> String {
-    let dir = std::env::temp_dir().join(format!("rsh-fd-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("whelk-fd-{}", std::process::id()));
     std::fs::create_dir_all(&dir).expect("failed to create scratch dir");
     let path = dir.join("target.txt");
 

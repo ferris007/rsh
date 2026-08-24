@@ -53,7 +53,7 @@ jobs:
             echo "release $tag already exists, leaving its notes alone"
           else
             gh release create "$tag" --repo "$REPO" \
-              --title "rsh ${tag#v}" --generate-notes --verify-tag
+              --title "whelk ${tag#v}" --generate-notes --verify-tag
           fi
 
   build:
@@ -89,17 +89,17 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build
-        run: cargo build --release -p rsh --target ${{ matrix.target }}
+        run: cargo build --release -p whelk --target ${{ matrix.target }}
 
       - name: Package
         shell: bash
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
-          name="rsh-${tag}-${{ matrix.target }}"
+          name="whelk-${tag}-${{ matrix.target }}"
           mkdir -p "dist/${name}"
-          strip "target/${{ matrix.target }}/release/rsh"
-          cp "target/${{ matrix.target }}/release/rsh" "dist/${name}/"
+          strip "target/${{ matrix.target }}/release/whelk"
+          cp "target/${{ matrix.target }}/release/whelk" "dist/${name}/"
           cp README.md LICENSE-MIT LICENSE-APACHE "dist/${name}/"
           tar -czf "dist/${name}.tar.gz" -C dist "${name}"
           # Checksums beside the archive: a download nobody can verify is a
@@ -115,7 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
-          bin="dist/rsh-${tag}-${{ matrix.target }}/rsh"
+          bin="dist/whelk-${tag}-${{ matrix.target }}/whelk"
           # A stripped binary that cannot start is worse than no binary. Feed it
           # a command line on stdin, where it takes the non-interactive path.
           echo 'echo release-smoke-test' | "$bin"
@@ -130,7 +130,7 @@ jobs:
           # 6.7M of symbols to everyone who installs the package. --no-build to
           # package the binary that was just built and smoke-tested, rather than
           # a second one nobody looked at.
-          cargo deb -p rsh --target ${{ matrix.target }} --strip --no-build --output dist/
+          cargo deb -p whelk --target ${{ matrix.target }} --strip --no-build --output dist/
 
       - name: Check the .deb
         if: matrix.deb
@@ -142,7 +142,7 @@ jobs:
           # Unpack and run it, rather than trusting that a package that built is
           # a package that works.
           dpkg-deb -x "$deb" /tmp/debcheck
-          echo 'echo deb-smoke-test' | /tmp/debcheck/usr/bin/rsh
+          echo 'echo deb-smoke-test' | /tmp/debcheck/usr/bin/whelk
 
       - name: Upload to the release
         shell: bash
@@ -152,8 +152,8 @@ jobs:
           set -euo pipefail
           tag="${{ inputs.tag || github.ref_name }}"
           gh release upload "$tag" \
-            dist/rsh-${tag}-${{ matrix.target }}.tar.gz \
-            dist/rsh-${tag}-${{ matrix.target }}.tar.gz.sha256 \
+            dist/whelk-${tag}-${{ matrix.target }}.tar.gz \
+            dist/whelk-${tag}-${{ matrix.target }}.tar.gz.sha256 \
             --clobber
           # The .deb carries its own Debian-style name, so it is uploaded by
           # whatever it turned out to be called rather than by a guess.

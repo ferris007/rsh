@@ -52,8 +52,8 @@ it exits every other process in the namespace is killed.
 
 ## The connection to a shell
 
-Everything else in this directory answers a question `rsh` had to answer to
-work. This one does not — `rsh` creates no namespaces, and a shell has no
+Everything else in this directory answers a question `whelk` had to answer to
+work. This one does not — `whelk` creates no namespaces, and a shell has no
 reason to.
 
 It is here because it is the sharpest illustration of something the rest of the
@@ -64,7 +64,7 @@ process.** The same idea, in weaker forms, is behind three earlier findings:
   membership is what decides who dies. The pid is not the addressable thing.
 - [`file_descriptors`](../file_descriptors/) — a descriptor number is an index,
   and `dup2` writes at an index. The number is not the file.
-- `Child::wait` consuming `self` in `rsh-process` — a pid is meaningful only
+- `Child::wait` consuming `self` in `whelk-process` — a pid is meaningful only
   until it is reaped, after which the kernel may hand the number to someone
   else.
 

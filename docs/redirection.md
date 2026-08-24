@@ -72,10 +72,10 @@ being *set up* — before the command is even looked up. Two consequences that
 scripts rely on:
 
 - `> lockfile` is a complete command. There is no program in it at all; its
-  only effect is the redirection. (`rsh` does not accept this yet — it requires
+  only effect is the redirection. (`whelk` does not accept this yet — it requires
   a command name — but the open-first ordering is the same.)
 - `nosuchcommand > out.txt` creates `out.txt`, empty, and *then* reports that
-  the command does not exist. Every POSIX shell does this. `rsh` has a test for
+  the command does not exist. Every POSIX shell does this. `whelk` has a test for
   it, because it looks like a bug and is not.
 
 `>>` uses `O_APPEND`, which seeks to the end before every write, atomically.
@@ -103,7 +103,7 @@ only reason to call it. `sh -c '...' 3> out.txt` hits this exactly: the file is
 opened at descriptor 3, the lowest free one, and then asked to be descriptor 3.
 
 The result is the worst kind of failure: no crash, no message, and a
-redirection that silently does not happen. `rsh` handles it by calling
+redirection that silently does not happen. `whelk` handles it by calling
 `fcntl(fd, F_SETFD, 0)` instead, which clears the flag directly and is also
 async-signal-safe.
 
@@ -121,7 +121,7 @@ This is not hypothetical. A test asserting that `2>&9` is an error passed on
 Linux and failed on the macOS CI runner, because that runner's test harness
 handed the shell an open descriptor 9. The shell was right and the test was
 wrong: it had encoded an assumption about the environment as if it were a fact
-about `rsh`.
+about `whelk`.
 
 Descriptors 0, 1, and 2 are conventional, not special. Everything above them is
 inherited state, and a program that assumes otherwise is reading its parent's

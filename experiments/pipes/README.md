@@ -45,9 +45,9 @@ Compare the two shells directly:
 $ /bin/sh -c "sh -c 'kill -PIPE \$\$'"; echo $?
 141                                   # 128 + SIGPIPE
 
-$ rsh                                 # before the fix
-rsh> sh -c 'kill -PIPE $$'
-rsh> echo $?
+$ whelk                                 # before the fix
+whelk> sh -c 'kill -PIPE $$'
+whelk> echo $?
 0
 ```
 
@@ -69,8 +69,8 @@ forever.
 
 ## The fix
 
-`rsh` resets `SIGPIPE` to `SIG_DFL` in the child, between `fork` and `exec`,
-in `crates/rsh-process/src/command.rs`. `signal` is async-signal-safe, and
+`whelk` resets `SIGPIPE` to `SIG_DFL` in the child, between `fork` and `exec`,
+in `crates/whelk-process/src/command.rs`. `signal` is async-signal-safe, and
 setting a *disposition* rather than a handler means no Rust code can end up
 running in a signal context.
 

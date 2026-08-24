@@ -1,11 +1,11 @@
-# Contributing to rsh
+# Contributing to whelk
 
 Thank you for looking. This project welcomes help, but it is an unusual project,
 so please read this first — it will save us both time.
 
 ## What this project is
 
-`rsh` is a learning project. The point is to understand how Unix works by
+`whelk` is a learning project. The point is to understand how Unix works by
 building a shell on top of primitives that were understood first.
 
 That has one consequence that surprises people:
@@ -65,11 +65,11 @@ SIGINT?" is one experiment. "How do signals work?" is not.
 You need Rust 1.85 or newer.
 
 ```console
-$ git clone https://github.com/ferris007/rsh
-$ cd rsh
+$ git clone https://github.com/ferris007/whelk
+$ cd whelk
 $ cargo build
 $ cargo test
-$ cargo run -p rsh
+$ cargo run -p whelk
 ```
 
 ## Before you open a pull request
@@ -86,10 +86,10 @@ $ cargo test --workspace
 
 A few rules that the code follows and that review will ask about:
 
-- **`rsh-parser` never touches the operating system.** It turns a string into an
+- **`whelk-parser` never touches the operating system.** It turns a string into an
   AST. If it needs to read a file or an environment variable, something is in
   the wrong crate.
-- **`rsh-executor` never re-reads the source text.** It receives structure. If
+- **`whelk-executor` never re-reads the source text.** It receives structure. If
   it needs to look at characters, the AST is missing something.
 - **Every `unsafe` block has a `// SAFETY:` comment** explaining why it is
   sound. Clippy enforces the comment; review checks whether it is true.

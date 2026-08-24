@@ -3,8 +3,8 @@
 > **Question:** a forked child that terminates with `exit()` instead of
 > `_exit()` — what does it take with it?
 
-`rsh` spawns every external command by forking and calling `execv`. If `execv`
-fails, the child has to terminate, and `crates/rsh-process/src/command.rs` is
+`whelk` spawns every external command by forking and calling `execv`. If `execv`
+fails, the child has to terminate, and `crates/whelk-process/src/command.rs` is
 careful to use `_exit` rather than `exit` at that point. This experiment is why.
 
 ## The setup
@@ -72,11 +72,11 @@ same offset instead of overwriting each other.
 
 ## Why it matters to the shell
 
-Two independent consequences for `rsh`:
+Two independent consequences for `whelk`:
 
 1. **The failure path must use `_exit`.** When `execv` fails, the child has to
    terminate without dragging the parent's pending output out with it.
-2. **The parent must flush before forking.** `rsh-executor` calls
+2. **The parent must flush before forking.** `whelk-executor` calls
    `stdout().flush()` before every spawn for exactly this reason: an empty
    buffer cannot be duplicated. This is belt-and-braces with (1), and it is
    worth having both, because a child that successfully `exec`s a *different*

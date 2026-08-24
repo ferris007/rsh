@@ -8,7 +8,7 @@ connected by kernel buffers. `c` starts reading before `a` has finished writing,
 which is why this answers instantly:
 
 ```console
-rsh> find / | head -1
+whelk> find / | head -1
 ```
 
 `find` is still walking the filesystem when `head` prints its line and exits.
@@ -40,7 +40,7 @@ copy of *every* pipe in the pipeline, not just its own, and the shell holds
 copies too. A single forgotten descriptor anywhere keeps a reader waiting for
 data that will never come.
 
-`rsh` never closes a pipe descriptor by hand. Two mechanisms do it:
+`whelk` never closes a pipe descriptor by hand. Two mechanisms do it:
 
 - **In children**: pipe ends are close-on-exec. `dup2` clears the flag on the
   one or two a child was given, and `exec` closes everything still carrying it.
@@ -90,7 +90,7 @@ The result is not a crash. The pipeline still produces correct output; it just
 loses the mechanism that stops the producer, and what happens instead depends on
 how carefully a program written decades ago handled a write error.
 
-`rsh` resets `SIGPIPE` to `SIG_DFL` in the child, between `fork` and `exec`.
+`whelk` resets `SIGPIPE` to `SIG_DFL` in the child, between `fork` and `exec`.
 Demonstrated in [`experiments/pipes`](../experiments/pipes/).
 
 ## Exit status
@@ -98,8 +98,8 @@ Demonstrated in [`experiments/pipes`](../experiments/pipes/).
 The pipeline's status is the **last** command's:
 
 ```console
-rsh> sh -c 'exit 3' | sh -c 'exit 0'
-rsh> echo $?
+whelk> sh -c 'exit 3' | sh -c 'exit 0'
+whelk> echo $?
 0
 ```
 
@@ -115,7 +115,7 @@ rest of the session.
 ## Redirections override pipes
 
 ```console
-rsh> echo hi > f.txt | cat
+whelk> echo hi > f.txt | cat
 ```
 
 `cat` receives nothing and `f.txt` contains `hi`. The pipe is wired up first and
@@ -128,7 +128,7 @@ comment.
 **A pipeline that cannot be set up runs nothing.** Every stage is prepared —
 expanded, resolved, files opened — before anything is forked. If a redirection
 fails on stage 3, `bash` still runs stages 1 and 2 and lets stage 3 report the
-error; `rsh` reports the error and runs none of it. Preparing first is what
+error; `whelk` reports the error and runs none of it. Preparing first is what
 makes "no half-started pipeline" a property rather than a hope; the trade is
 this difference, which is visible only when a stage's redirection fails.
 

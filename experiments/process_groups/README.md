@@ -103,7 +103,7 @@ to unfreeze it.
 **And it must not pass that on.** `SIG_IGN` is inherited across `exec`, so a
 shell that ignores `SIGTSTP`, `SIGTTIN`, and `SIGTTOU` for itself has to reset
 all three in every child, or its own self-protection silently becomes a property
-of every program it runs. `rsh` does this in `Command::spawn` — the same trap
+of every program it runs. `whelk` does this in `Command::spawn` — the same trap
 `SIGPIPE` sets in [`../pipes`](../pipes/), from the other direction.
 
 ## Going further

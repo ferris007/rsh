@@ -20,17 +20,17 @@ fn path_lookup(c: &mut Criterion) {
     // an absolute path is a single stat, and a bare name is one per PATH entry
     // until it hits.
     group.bench_function("absolute", |b| {
-        b.iter(|| rsh_process::resolve(black_box("/bin/sh"), path.as_deref()));
+        b.iter(|| whelk_process::resolve(black_box("/bin/sh"), path.as_deref()));
     });
 
     group.bench_function("search-path", |b| {
-        b.iter(|| rsh_process::resolve(black_box("sh"), path.as_deref()));
+        b.iter(|| whelk_process::resolve(black_box("sh"), path.as_deref()));
     });
 
     // The expensive case, and the one a user hits by typing badly: a lookup
     // that fails has to exhaust PATH before it can say so.
     group.bench_function("not-found", |b| {
-        b.iter(|| rsh_process::resolve(black_box("definitely-not-a-command"), path.as_deref()));
+        b.iter(|| whelk_process::resolve(black_box("definitely-not-a-command"), path.as_deref()));
     });
 
     group.finish();
@@ -39,7 +39,7 @@ fn path_lookup(c: &mut Criterion) {
     // It reads every directory on PATH rather than stat-ing one name in each,
     // so it is worth knowing whether that is a rounding error or the main cost.
     c.bench_function("suggest", |b| {
-        b.iter(|| rsh_process::suggest(black_box("definitely-not-a-command"), path.as_deref()));
+        b.iter(|| whelk_process::suggest(black_box("definitely-not-a-command"), path.as_deref()));
     });
 }
 
@@ -53,7 +53,7 @@ fn spawning(c: &mut Criterion) {
 
     group.bench_function("fork-exec-wait", |b| {
         b.iter(|| {
-            let command = rsh_process::Command::new(&program, ["true"]).expect("prepared");
+            let command = whelk_process::Command::new(&program, ["true"]).expect("prepared");
             let child = command.spawn().expect("spawned");
             child.wait().expect("waited")
         });
@@ -66,7 +66,7 @@ fn pipes(c: &mut Criterion) {
     // Creating the pipes is the shell's own cost in a pipeline, separate from
     // the processes on either end.
     c.bench_function("pipe/create", |b| {
-        b.iter(|| rsh_process::Pipe::new().expect("created"));
+        b.iter(|| whelk_process::Pipe::new().expect("created"));
     });
 }
 
