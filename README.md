@@ -16,37 +16,49 @@ Unix actually works**.
 
 ## Status
 
-Phase 10 — benchmarks, tracing, and allocation-counting regression tests. The
-roadmap is complete apart from two experiments.
+**Complete.** All eleven phases of [the roadmap](docs/roadmap.md) are done, with
+three items deliberately left unchecked and the reasons written down.
 
 ```console
-$ rsh --benchmark
-rsh benchmark
-────────────────────────
-startup          0.82 ms
-echo             1.40 ms
-pipeline         1.48 ms
-memory            2.8 MB
+$ cargo run -p rsh
+rsh> printf '3\n1\n2\n' | sort | head -2 > out.txt
+rsh> cat < out.txt
+1
+2
+rsh> sleep 30 &
+[1] 4242
+rsh> sleep 30
+^Z
+[2]+  Stopped                 sleep 30
+rsh> jobs
+[1]-  Running                 sleep 30
+[2]+  Stopped                 sleep 30
+rsh> grepp pattern
+rsh: grepp: command not found
+      did you mean `grep`?
+rsh> exit
+rsh: there are stopped jobs
+rsh> exit
 ```
 
-The number worth knowing:
+Quoting, expansion, redirection, pipelines, signals, job control, `vim` and
+`top` running inside it, persistent history, Tab completion, an event loop over
+`epoll` and `kqueue`, and a benchmark suite.
+
+334 tests, of which 29 drive the shell through a real pseudoterminal — job
+control and terminal handling cannot be observed any other way.
+
+**The number worth knowing:**
 
 ```text
 parse a pipeline      1.3 µs
 start one process   492.0 µs      ← 75× the parse, expand, and lookup combined
 ```
 
-A shell spends its life waiting for `fork` and `exec`. Optimising the parser
-would be polishing a rounding error — which is why the benchmarks that guard
-against regressions are the parsing ones, not because parsing is expensive but
-because it is the only part whose timing is stable enough to watch.
+A shell spends its life waiting for `fork` and `exec`.
 
-The benchmarks also found something nobody had timed: "did you mean", added in
-Phase 8, costs 61 ms. Measured, traced to WSL's Windows filesystem bridge rather
-than to the algorithm, and left alone. See
-[Performance](docs/performance.md).
-
-See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
+**Eight experiments**, seven of which came out of a bug found while building the
+phase they document. That was not the plan; it is what happened every time.
 
 ## Principles
 

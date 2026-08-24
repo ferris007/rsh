@@ -21,7 +21,8 @@ use nix::libc;
 use nix::pty::{forkpty, ForkptyResult};
 use nix::sys::signal::{kill, Signal};
 use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
-use nix::unistd::{fork, setpgid, tcsetpgrp, ForkResult, Pid};
+use nix::unistd::{fork, pipe, setpgid, tcsetpgrp, write, ForkResult, Pid};
+use std::os::fd::AsRawFd;
 
 /// Long enough for a child to reach its `read` before we look.
 const SETTLE: Duration = Duration::from_millis(400);
@@ -52,10 +53,23 @@ fn main() {
 
 /// The part that runs inside a session owning a terminal.
 fn demonstrate() {
+    // A gate, so the children do not touch the terminal before the parent has
+    // finished arranging who owns it.
+    //
+    // Without this the demonstration is a race, and one this program loses on a
+    // busy machine: a child that reaches `read` before `tcsetpgrp` runs is *not*
+    // in the foreground group yet, gets SIGTTIN, and stops — even the one about
+    // to be given the terminal. Both children then report as stopped and the
+    // experiment appears to show something it does not.
+    //
+    // A real shell has the same problem and solves it the same way. This is why
+    // `fg` hands over the terminal before sending SIGCONT, rather than after.
+    let (gate_read, gate_write) = pipe().expect("failed to create a pipe");
+
     // Two children, each leading its own process group — exactly as a shell's
-    // jobs do. Both try to read from the terminal.
-    let foreground = spawn_reader();
-    let background = spawn_reader();
+    // jobs do. Both will try to read from the terminal, once let through.
+    let foreground = spawn_reader(&gate_read);
+    let background = spawn_reader(&gate_read);
 
     println!("two children, each in its own process group:");
     println!("  {foreground} and {background}");
@@ -69,6 +83,10 @@ fn demonstrate() {
     }
     println!();
 
+    // Now, and only now, let them read.
+    write(&gate_write, b"gg").expect("failed to open the gate");
+    drop(gate_write);
+
     std::thread::sleep(SETTLE);
 
     println!("  foreground: {}", describe(foreground));
@@ -80,8 +98,9 @@ fn demonstrate() {
     }
 }
 
-/// Fork a child that leads its own group and blocks reading the terminal.
-fn spawn_reader() -> Pid {
+/// Fork a child that leads its own group and, once let through, reads the
+/// terminal.
+fn spawn_reader(gate: &std::os::fd::OwnedFd) -> Pid {
     let cat = CString::new("/bin/cat").expect("no NUL in a literal");
     let argv: Vec<*const libc::c_char> = vec![cat.as_ptr(), std::ptr::null()];
 
@@ -90,6 +109,14 @@ fn spawn_reader() -> Pid {
     match unsafe { fork() }.expect("fork failed") {
         ForkResult::Child => {
             let _ = setpgid(Pid::from_raw(0), Pid::from_raw(0));
+
+            // Wait at the gate. Reading a pipe is not reading the terminal, so
+            // this cannot itself earn a SIGTTIN.
+            let mut byte = [0_u8; 1];
+
+            // SAFETY: `read` is async-signal-safe; the buffer is on this
+            // process's stack and the descriptor was inherited across the fork.
+            unsafe { libc::read(gate.as_raw_fd(), byte.as_mut_ptr().cast(), 1) };
 
             // SAFETY: `argv` is NULL-terminated and alive in this address-space
             // copy. On success this does not return.
