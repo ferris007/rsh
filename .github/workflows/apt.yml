@@ -1,0 +1,114 @@
+# Publishes an apt repository to GitHub Pages, built from the .deb files
+# already attached to the releases.
+#
+# Nothing is compiled here. The packages were built, stripped, smoke-tested and
+# uploaded by the release workflow; this one only indexes and signs them. That
+# separation is deliberate: an index that disagrees with the binaries it points
+# at is the one failure an apt repository must not have.
+#
+# Signing is not optional. An unsigned repository asks users to add
+# `[trusted=yes]` to their sources list, which turns off the check that stops a
+# man in the middle serving them a different `whelk`. The private key lives in
+# the APT_GPG_PRIVATE_KEY secret and is never written to the repository.
+
+name: apt repository
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One at a time. Two runs racing to publish the index would be a repository
+# that briefly disagrees with itself.
+concurrency:
+  group: apt-repository
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Collect every published .deb
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p public/pool/main/w/whelk
+          # Every release, not just the newest: someone pinned to an older
+          # version should still be able to install it.
+          for tag in $(gh release list --limit 100 --json tagName -q '.[].tagName'); do
+            gh release download "$tag" --pattern '*.deb' --dir public/pool/main/w/whelk --clobber 2>/dev/null || true
+          done
+          echo "collected:"
+          ls -1 public/pool/main/w/whelk/ || { echo "no .deb found in any release"; exit 1; }
+
+      - name: Build the index
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apt-utils >/dev/null
+          cd public
+          mkdir -p dists/stable/main/binary-amd64
+          apt-ftparchive --arch amd64 packages pool > dists/stable/main/binary-amd64/Packages
+          gzip -9kf dists/stable/main/binary-amd64/Packages
+          apt-ftparchive \
+            -o APT::FTPArchive::Release::Origin=whelk \
+            -o APT::FTPArchive::Release::Label=whelk \
+            -o APT::FTPArchive::Release::Suite=stable \
+            -o APT::FTPArchive::Release::Codename=stable \
+            -o APT::FTPArchive::Release::Architectures=amd64 \
+            -o APT::FTPArchive::Release::Components=main \
+            -o APT::FTPArchive::Release::Description="whelk, a Unix shell built from first principles" \
+            release dists/stable > "$RUNNER_TEMP/Release"
+          # Written outside the tree and moved in: a Release generated straight
+          # into the directory it is describing lists itself, because the shell
+          # creates the empty file before apt-ftparchive scans for what to hash.
+          mv "$RUNNER_TEMP/Release" dists/stable/Release
+          echo "--- Packages ---"; cat dists/stable/main/binary-amd64/Packages
+
+      - name: Sign it
+        env:
+          KEY: ${{ secrets.APT_GPG_PRIVATE_KEY }}
+          PASSPHRASE: ${{ secrets.APT_GPG_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KEY:-}" ]; then
+            echo "::error::APT_GPG_PRIVATE_KEY is not set. See docs/apt-repository.md."
+            exit 1
+          fi
+          printf '%s' "$KEY" | gpg --batch --import
+          keyid=$(gpg --list-secret-keys --with-colons | awk -F: '/^sec:/ {print $5; exit}')
+          cd public
+          # InRelease is the signed-in-place form modern apt prefers; Release.gpg
+          # is the detached form, kept for older clients.
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${PASSPHRASE:-}" \
+              --local-user "$keyid" --clearsign -o dists/stable/InRelease dists/stable/Release
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${PASSPHRASE:-}" \
+              --local-user "$keyid" -abs -o dists/stable/Release.gpg dists/stable/Release
+          # The public half, for users to verify against.
+          gpg --armor --export "$keyid" > key.gpg
+          echo "signed with $keyid"
+
+      - name: Add the landing page
+        run: |
+          set -euo pipefail
+          cp .github/apt/index.html public/index.html
+          touch public/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - id: deploy
+        uses: actions/deploy-pages@v4

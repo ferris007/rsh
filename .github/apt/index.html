@@ -1,0 +1,26 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>whelk apt repository</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 42rem; margin: 4rem auto;
+         padding: 0 1rem; line-height: 1.6 }
+  pre { background: #f4f4f4; padding: 1rem; overflow-x: auto; border-radius: 6px }
+  code { font-family: ui-monospace, monospace }
+</style>
+<h1>whelk</h1>
+<p>A Unix shell built from first principles.
+   <a href="https://github.com/ferris007/whelk">Source on GitHub</a>.</p>
+
+<h2>Install</h2>
+<pre><code>curl -fsSL https://ferris007.github.io/whelk/key.gpg \
+    | sudo gpg --dearmor -o /etc/apt/keyrings/whelk.gpg
+
+echo "deb [signed-by=/etc/apt/keyrings/whelk.gpg] https://ferris007.github.io/whelk stable main" \
+    | sudo tee /etc/apt/sources.list.d/whelk.list
+
+sudo apt update
+sudo apt install whelk</code></pre>
+
+<p>The binary is statically linked, so it runs on any Debian or Ubuntu whatever
+   its glibc version. This is not a Debian archive; it is this project's own
+   repository, which is why the key has to be added first.</p>
