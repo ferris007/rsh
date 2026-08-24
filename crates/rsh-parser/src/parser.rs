@@ -80,12 +80,21 @@ impl Parser {
             commands.push(command);
         }
 
+        // `&` ends the pipeline and sends it to the background. It is a
+        // terminator, not a separator: `a & b` is two commands in bash, which
+        // needs the list grammar this parser does not have yet.
+        let background = matches!(self.peek(), Some(TokenKind::Amp));
+        if background {
+            let amp = self.bump().expect("peeked an ampersand").span;
+            span = span.to(amp);
+        }
+
         // Anything still unconsumed is a token the grammar has no place for.
         if let Some(token) = self.peek_token() {
             return Err(unsupported(token));
         }
 
-        Ok(Pipeline::new(commands, span))
+        Ok(Pipeline::new(commands, background, span))
     }
 
     fn command(&mut self) -> Result<Command, ParseError> {
@@ -205,17 +214,11 @@ enum Next {
 /// turns "unsupported" into "not yet, and here is where to look", which is the
 /// difference between a dead end and a plan.
 fn unsupported(token: &Token) -> ParseError {
-    let phase = match token.kind {
-        TokenKind::Amp => Some(6),
-        TokenKind::AndIf | TokenKind::OrIf | TokenKind::Semi => None,
-        _ => None,
-    };
-
     match token.kind {
         TokenKind::AndIf | TokenKind::OrIf | TokenKind::Semi | TokenKind::Amp => {
             ParseError::Unsupported {
                 token: token.kind.describe().to_owned(),
-                phase,
+                phase: None,
                 span: token.span,
             }
         }

@@ -2,8 +2,10 @@
 
 use std::fmt;
 
+use nix::errno::Errno;
 use nix::sys::signal::Signal;
-use nix::sys::wait::WaitStatus;
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
+use nix::unistd::Pid;
 
 /// Reported when a command could not be found on `PATH`.
 ///
@@ -106,5 +108,95 @@ mod tests {
             ExitStatus::from_wait(WaitStatus::Stopped(pid, Signal::SIGTSTP)),
             None
         );
+    }
+}
+
+/// What a child did, as reported by a non-blocking check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChildEvent {
+    /// It ended.
+    Finished(Pid, ExitStatus),
+    /// It was suspended.
+    Stopped(Pid, Signal),
+    /// It was resumed.
+    Continued(Pid),
+}
+
+impl ChildEvent {
+    /// Which process the event is about.
+    pub fn pid(self) -> Pid {
+        match self {
+            Self::Finished(pid, _) | Self::Stopped(pid, _) | Self::Continued(pid) => pid,
+        }
+    }
+}
+
+/// Collect every child state change that is waiting, without blocking.
+///
+/// `WNOHANG` is what makes this safe to call from the main loop: it reports
+/// what has already happened and returns immediately if nothing has.
+/// `WUNTRACED` and `WCONTINUED` widen "happened" from "died" to "changed
+/// state", which is the difference between a shell that can only notice
+/// completed jobs and one that can track suspended ones.
+///
+/// Called at the prompt rather than in the `SIGCHLD` handler. Reaping inside
+/// the handler would race with whatever `waitpid` the shell is already blocked
+/// in for a foreground job — the handler would collect a status the main loop
+/// is waiting for, and the main loop would then wait forever for a child that
+/// no longer exists.
+pub fn collect_child_events() -> Vec<ChildEvent> {
+    let flags = WaitPidFlag::WNOHANG | WaitPidFlag::WUNTRACED | WaitPidFlag::WCONTINUED;
+    let mut events = Vec::new();
+
+    loop {
+        // `Pid::from_raw(-1)` means "any child", which is the only form that
+        // works here: the shell does not know which job the news is about.
+        match waitpid(Pid::from_raw(-1), Some(flags)) {
+            Ok(WaitStatus::StillAlive) => break,
+            Ok(WaitStatus::Exited(pid, code)) => {
+                events.push(ChildEvent::Finished(pid, ExitStatus::Exited(code)));
+            }
+            Ok(WaitStatus::Signaled(pid, signal, _)) => {
+                events.push(ChildEvent::Finished(pid, ExitStatus::Signaled(signal)));
+            }
+            Ok(WaitStatus::Stopped(pid, signal)) => events.push(ChildEvent::Stopped(pid, signal)),
+            Ok(WaitStatus::Continued(pid)) => events.push(ChildEvent::Continued(pid)),
+            Ok(_) => continue,
+            // No children at all, which is the ordinary state of an idle shell.
+            Err(Errno::ECHILD) => break,
+            Err(Errno::EINTR) => continue,
+            Err(_) => break,
+        }
+    }
+
+    events
+}
+
+/// Wait for the next child state change, blocking until one arrives.
+///
+/// The blocking counterpart of [`collect_child_events`], for a shell that has
+/// nothing to do until a specific job moves — `fg`, which has handed over the
+/// terminal and is waiting to get it back.
+///
+/// Returns an empty vector if there are no children at all, so a caller looping
+/// on this cannot spin forever waiting for news that can never come.
+pub fn collect_child_events_blocking() -> Vec<ChildEvent> {
+    let flags = WaitPidFlag::WUNTRACED | WaitPidFlag::WCONTINUED;
+
+    loop {
+        match waitpid(Pid::from_raw(-1), Some(flags)) {
+            Ok(WaitStatus::Exited(pid, code)) => {
+                return vec![ChildEvent::Finished(pid, ExitStatus::Exited(code))]
+            }
+            Ok(WaitStatus::Signaled(pid, signal, _)) => {
+                return vec![ChildEvent::Finished(pid, ExitStatus::Signaled(signal))]
+            }
+            Ok(WaitStatus::Stopped(pid, signal)) => return vec![ChildEvent::Stopped(pid, signal)],
+            Ok(WaitStatus::Continued(pid)) => return vec![ChildEvent::Continued(pid)],
+            Ok(_) => continue,
+            Err(Errno::ECHILD) => return Vec::new(),
+            Err(Errno::EINTR) => continue,
+            Err(_) => return Vec::new(),
+        }
     }
 }

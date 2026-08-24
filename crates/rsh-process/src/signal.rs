@@ -51,6 +51,13 @@ static INTERRUPTED: AtomicBool = AtomicBool::new(false);
 /// The signal that asked the shell to shut down, or 0.
 static TERMINATING: AtomicI32 = AtomicI32::new(0);
 
+/// Set when a child changes state — exits, is stopped, or is continued.
+///
+/// Only useful once a job can outlive the command that started it. A shell that
+/// waits for every child synchronously already knows when they end; one with
+/// background jobs does not, and this is how it finds out without polling.
+static CHILD_CHANGED: AtomicBool = AtomicBool::new(false);
+
 /// Record a Ctrl-C.
 ///
 /// Everything this does is a relaxed atomic store, which is a single
@@ -63,6 +70,16 @@ extern "C" fn on_interrupt(_signal: c_int) {
 /// Record a request to shut down.
 extern "C" fn on_terminate(signal: c_int) {
     TERMINATING.store(signal, Ordering::Relaxed);
+}
+
+/// Record that some child changed state.
+///
+/// Deliberately not `waitpid` — reaping here would race with the foreground
+/// `waitpid` the shell is blocked in, and the handler would be reaping jobs the
+/// main loop is in the middle of waiting for. The flag says "look when it is
+/// safe"; the looking happens in the main loop.
+extern "C" fn on_child(_signal: c_int) {
+    CHILD_CHANGED.store(true, Ordering::Relaxed);
 }
 
 /// Install the shell's handlers.
@@ -82,6 +99,14 @@ pub fn install() -> Result<(), Errno> {
         SaFlags::empty(),
         SigSet::empty(),
     );
+    // SA_RESTART on SIGCHLD alone: a background job finishing is not a reason
+    // to abandon the line the user is halfway through typing. Ctrl-C is; a
+    // child exiting is not.
+    let child = SigAction::new(
+        SigHandler::Handler(on_child),
+        SaFlags::SA_RESTART,
+        SigSet::empty(),
+    );
 
     for (signal, action) in [
         (Signal::SIGINT, &interrupt),
@@ -89,6 +114,7 @@ pub fn install() -> Result<(), Errno> {
         (Signal::SIGHUP, &terminate),
         // Ctrl-\, which would otherwise kill the shell and dump core.
         (Signal::SIGQUIT, &interrupt),
+        (Signal::SIGCHLD, &child),
     ] {
         // SAFETY: the handlers above do nothing but store to a `static`
         // atomic — no allocation, no locks, no calls into code that could do
@@ -96,7 +122,33 @@ pub fn install() -> Result<(), Errno> {
         unsafe { sigaction(signal, action)? };
     }
 
+    // Ignore the signals that would let the shell suspend itself.
+    //
+    // `tcsetpgrp` is a terminal write, so a shell that is not the foreground
+    // group is signalled with SIGTTOU for calling it — which is exactly what
+    // happens when it takes the terminal back from a job it just suspended.
+    // The default action would stop the shell at the precise moment the user
+    // pressed Ctrl-Z, leaving a frozen terminal and no shell to unfreeze it.
+    //
+    // SIGTSTP is ignored for the same reason: Ctrl-Z is meant for the
+    // foreground job, and the shell is in that group until it hands the
+    // terminal over.
+    //
+    // These are `SIG_IGN` rather than handlers because the shell has nothing to
+    // do about them — and `SIG_IGN` is inherited across `exec`, so every child
+    // resets them before running. See `Command::spawn`.
+    let ignore = SigAction::new(SigHandler::SigIgn, SaFlags::empty(), SigSet::empty());
+    for signal in [Signal::SIGTSTP, Signal::SIGTTIN, Signal::SIGTTOU] {
+        // SAFETY: SIG_IGN installs no handler code.
+        unsafe { sigaction(signal, &ignore)? };
+    }
+
     Ok(())
+}
+
+/// Whether a child has changed state since this was last called.
+pub fn take_child_event() -> bool {
+    CHILD_CHANGED.swap(false, Ordering::Relaxed)
 }
 
 /// Whether a Ctrl-C has arrived since this was last called, clearing the flag.

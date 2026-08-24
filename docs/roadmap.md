@@ -153,7 +153,7 @@ SIGINT
 
 - [x] `SIGINT`
 - [x] `SIGTERM`
-- [ ] `SIGCHLD` — see below
+- [x] `SIGCHLD` — delivered in Phase 6, where it has something to report
 - [x] `SIGTSTP`
 - [x] `SIGCONT`
 - [x] Child-process reaping
@@ -179,17 +179,28 @@ Installing a handler now would be machinery with no purpose.
 
 ## Phase 6 — Job control
 
-- [ ] Background processes
-- [ ] Process groups
-- [ ] Foreground process group
-- [ ] Job table
-- [ ] `jobs`
-- [ ] `fg`
-- [ ] `bg`
-- [ ] Suspend/resume
-- [ ] Child state tracking
+- [x] Background processes
+- [x] Process groups
+- [x] Foreground process group
+- [x] Job table
+- [x] `jobs`
+- [x] `fg`
+- [x] `bg`
+- [x] Suspend/resume
+- [x] Child state tracking
 
 **Systems concepts:** sessions, process groups, controlling terminals.
+
+Notes: [`docs/job-control.md`](job-control.md), and
+[`experiments/process_groups`](../experiments/process_groups/), which explains
+why `cat &` stops the instant it starts.
+
+This phase also delivers the `SIGCHLD` item deferred from Phase 5. It had
+nothing to report while every child was waited for synchronously; background
+jobs are what changed that.
+
+Not implemented: builtins as jobs (needs a subshell), `disown`, `wait`,
+`kill %1`, and `SIGHUP` to jobs on exit.
 
 ---
 

@@ -3,11 +3,14 @@
 use std::io::Write;
 
 use nix::errno::Errno;
+use nix::unistd::{getpgrp, Pid};
+use rsh_job::JobTable;
 use rsh_parser::{Command, ParseError, Pipeline, Span};
 use rsh_process::{Redirections, ResolveError, Restore, EXIT_NOT_EXECUTABLE, EXIT_NOT_FOUND};
 
-use crate::builtin::Builtin;
+use crate::builtin::{Builtin, Context as BuiltinContext};
 use crate::expand::{expand_all, ProcessEnv};
+use crate::pipeline::Context as PipelineContext;
 use crate::redirect::{plan, RedirectError};
 
 /// Exit status for input the shell could not parse, or could not carry out.
@@ -31,9 +34,32 @@ pub enum Outcome {
 /// process state owned by the kernel and libc, and duplicating them here would
 /// create two sources of truth that drift the moment a builtin forgets to
 /// update one. What lives here is what has no other home.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Shell {
     last_status: i32,
+    jobs: JobTable,
+    /// Whether the shell owns a terminal and can therefore do job control.
+    ///
+    /// Decided once, at startup. A shell reading a script has no terminal to
+    /// hand over and nobody to type Ctrl-Z, so it runs children in its own
+    /// process group exactly as it did before job control existed.
+    job_control: bool,
+    /// The shell's own process group, to take the terminal back from a job.
+    shell_pgid: Pid,
+    /// Whether the user has already been warned about stopped jobs.
+    warned_about_jobs: bool,
+}
+
+impl Default for Shell {
+    fn default() -> Self {
+        Self {
+            last_status: 0,
+            jobs: JobTable::new(),
+            job_control: rsh_process::is_interactive(),
+            shell_pgid: getpgrp(),
+            warned_about_jobs: false,
+        }
+    }
 }
 
 impl Shell {
@@ -45,6 +71,38 @@ impl Shell {
     /// The status of the most recent command — what `$?` reports.
     pub fn last_status(&self) -> i32 {
         self.last_status
+    }
+
+    /// Notice what background jobs have done, and say so.
+    ///
+    /// Called once per prompt rather than continuously. A shell that announced
+    /// a finished job the instant it happened would write over whatever the
+    /// user was typing; every shell waits for a quiet moment, and the top of
+    /// the loop is the quiet moment.
+    pub fn report_jobs(&mut self) {
+        if !rsh_process::take_child_event() && self.jobs.is_empty() {
+            return;
+        }
+
+        let events = rsh_process::collect_child_events();
+        self.jobs.apply(&events);
+
+        for job in self.jobs.take_reportable() {
+            println!(
+                "[{}]{}  {:<22}  {}",
+                job.id(),
+                self.jobs.marker(job.id()),
+                job.state().describe(),
+                job.command()
+            );
+        }
+
+        self.jobs.forget_finished();
+    }
+
+    /// Whether any job is still running or stopped.
+    pub fn has_jobs(&self) -> bool {
+        self.jobs.iter().any(|job| job.state().is_alive())
     }
 
     /// Install the shell's signal handlers.
@@ -84,6 +142,43 @@ impl Shell {
     /// shell's job is to tell the user what went wrong and carry on, and a
     /// failed command is a normal event, not an exceptional one.
     pub fn run_line(&mut self, line: &str) -> Outcome {
+        match self.dispatch(line) {
+            Outcome::Exit(status) if !self.confirm_exit() => {
+                // Warned, not exited. The next attempt goes through.
+                let _ = status;
+                Outcome::Continue
+            }
+            outcome => {
+                self.warned_about_jobs = false;
+                outcome
+            }
+        }
+    }
+
+    /// Whether it is all right to leave, warning once if it is not.
+    ///
+    /// Only *stopped* jobs earn a warning. A running background job carries on
+    /// perfectly well without a shell; a stopped one would be left suspended
+    /// with nothing able to resume it, which is a process leaked in a state the
+    /// user cannot see. Warning once and letting the second attempt through is
+    /// what every shell does, and it is the right shape: the shell states the
+    /// consequence, and the decision stays with the user.
+    pub fn confirm_exit(&mut self) -> bool {
+        let stopped = self
+            .jobs
+            .iter()
+            .any(|job| matches!(job.state(), rsh_job::JobState::Stopped));
+
+        if stopped && !self.warned_about_jobs {
+            eprintln!("rsh: there are stopped jobs");
+            self.warned_about_jobs = true;
+            return false;
+        }
+
+        true
+    }
+
+    fn dispatch(&mut self, line: &str) -> Outcome {
         let pipeline = match rsh_parser::parse(line) {
             Ok(Some(pipeline)) => pipeline,
             // A blank line is not a command and does not disturb `$?`. Typing
@@ -99,19 +194,42 @@ impl Shell {
     }
 
     fn run_pipeline(&mut self, line: &str, pipeline: &Pipeline) -> Outcome {
-        if pipeline.commands().len() > 1 {
-            let env = ProcessEnv::new(self.last_status);
-            self.last_status = match crate::pipeline::run(pipeline, &env) {
-                Ok(status) => status,
-                Err(error) => {
-                    eprintln!("rsh: {error}");
-                    1
+        // A single builtin runs in the shell itself. Everything else — one
+        // command or ten — becomes a job, because with job control a lone
+        // `sleep 30` needs a process group and the terminal exactly as much as
+        // a pipeline does, and two spawning paths means two places to get that
+        // wrong.
+        if let [command] = pipeline.commands() {
+            if let Some(word) = command.words().first() {
+                let env = ProcessEnv::new(self.last_status);
+                let argv = expand_all(std::slice::from_ref(word), &env);
+                let is_builtin = argv
+                    .first()
+                    .is_some_and(|name| Builtin::lookup(name).is_some());
+
+                if is_builtin && !pipeline.background() {
+                    return self.run_command(line, command);
                 }
-            };
-            return Outcome::Continue;
+            }
         }
 
-        self.run_command(line, &pipeline.commands()[0])
+        let env = ProcessEnv::new(self.last_status);
+        let text = source_text(line, pipeline);
+        let mut ctx = PipelineContext {
+            jobs: &mut self.jobs,
+            job_control: self.job_control,
+            shell_pgid: self.shell_pgid,
+        };
+
+        self.last_status = match crate::pipeline::run(pipeline, &env, &mut ctx, &text) {
+            Ok(status) => status,
+            Err(error) => {
+                eprintln!("rsh: {error}");
+                1
+            }
+        };
+
+        Outcome::Continue
     }
 
     fn run_command(&mut self, line: &str, command: &Command) -> Outcome {
@@ -152,7 +270,13 @@ impl Shell {
                     }
                 };
 
-                let (outcome, status) = builtin.run(&argv[1..], self.last_status);
+                let mut ctx = BuiltinContext {
+                    jobs: &mut self.jobs,
+                    job_control: self.job_control,
+                    shell_pgid: self.shell_pgid,
+                    last_status: self.last_status,
+                };
+                let (outcome, status) = builtin.run(&argv[1..], &mut ctx);
 
                 // Flush while the redirection is still in place. Anything left
                 // in the buffer would otherwise be written after the descriptor
@@ -269,4 +393,16 @@ fn underline(line: &str, span: Span) {
 
     eprintln!("  {line}");
     eprintln!("  {}{}", " ".repeat(column), "^".repeat(width));
+}
+
+/// The text of a pipeline as the user wrote it, for the job table.
+///
+/// Taken from the source line rather than reconstructed from the AST: a job
+/// listing should show what was typed, not the shell's idea of an equivalent
+/// command. The trailing `&` is dropped because every listing already says the
+/// job is in the background.
+fn source_text(line: &str, pipeline: &Pipeline) -> String {
+    let span = pipeline.span();
+    let text = span.slice(line).unwrap_or(line).trim();
+    text.strip_suffix('&').unwrap_or(text).trim_end().to_owned()
 }
