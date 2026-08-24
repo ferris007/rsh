@@ -42,23 +42,48 @@ impl Terminal {
     /// Used to point `HOME` at a scratch directory, so tests of history and
     /// configuration cannot read or write the real one.
     pub fn open_with_env(vars: &[(&str, &str)]) -> Self {
+        // Everything the child needs is built here, before the fork.
+        //
+        // Between `fork` and `exec` a child may call only async-signal-safe
+        // functions, and the tests run on libtest's threads. `CString::new`
+        // allocates; `set_var` takes the environment lock. Either one, forked
+        // at the moment another thread held it, leaves the child waiting on a
+        // lock whose owner does not exist in the child — the deadlock this
+        // repository warns about in docs/process-model.md, and the reason the
+        // suite hung on macOS: glibc reinitialises those locks across `fork`
+        // and Apple's libc does not.
+        //
+        // So the environment is assembled as an `envp` for `execve` rather
+        // than set with `set_var` in the child, and the child calls nothing
+        // but `execve`. The shell itself follows this discipline; the harness
+        // that tests it has to as well.
+        let program = std::ffi::CString::new(RSH).expect("no NUL in a path");
+
+        let overridden = |name: &String| vars.iter().any(|(over, _)| name == *over);
+        let environment: Vec<std::ffi::CString> = std::env::vars()
+            .filter(|(name, _)| !overridden(name))
+            .map(|(name, value)| format!("{name}={value}"))
+            .chain(vars.iter().map(|(name, value)| format!("{name}={value}")))
+            .map(|entry| std::ffi::CString::new(entry).expect("no NUL in an environment entry"))
+            .collect();
+
+        let argv = [program.as_ptr(), std::ptr::null()];
+        let envp: Vec<_> = environment
+            .iter()
+            .map(|entry| entry.as_ptr())
+            .chain(std::iter::once(std::ptr::null()))
+            .collect();
+
         // SAFETY: `forkpty` forks. The child branch below does nothing but
-        // `execv` on a path built before the call, which is the same discipline
-        // the shell itself follows.
+        // `execve`, on arguments built above and inherited by the child.
         let result = unsafe { forkpty(None, None) }.expect("failed to open a pseudoterminal");
 
         match result {
             ForkptyResult::Child => {
-                for (name, value) in vars {
-                    std::env::set_var(name, value);
-                }
-
-                let program = std::ffi::CString::new(RSH).expect("no NUL in a path");
-                let argv = [program.as_ptr(), std::ptr::null()];
-
-                // SAFETY: `argv` is NULL-terminated and alive here. On success
-                // this does not return.
-                unsafe { nix::libc::execv(program.as_ptr(), argv.as_ptr()) };
+                // SAFETY: `argv` and `envp` are NULL-terminated and were built
+                // before the fork, so the child only reads memory it inherited
+                // and allocates nothing. On success this does not return.
+                unsafe { nix::libc::execve(program.as_ptr(), argv.as_ptr(), envp.as_ptr()) };
 
                 // SAFETY: `_exit` terminates without flushing inherited buffers.
                 unsafe { nix::libc::_exit(127) }

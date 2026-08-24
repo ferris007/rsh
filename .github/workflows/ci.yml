@@ -31,6 +31,10 @@ jobs:
         # Linux is the primary target; macOS guards against accidentally
         # depending on Linux-only behaviour in code that claims to be portable.
         os: [ubuntu-latest, macos-latest]
+    # The suite takes about a minute. Ten is generous, and the point is that a
+    # deadlocked test fails in ten minutes rather than running until GitHub's
+    # six-hour cap -- which is expensive on macOS, where minutes bill at 10x.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
