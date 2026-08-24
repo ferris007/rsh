@@ -516,8 +516,11 @@ fn a_redirection_target_must_expand_to_one_word() {
 
 #[test]
 fn duplicating_a_closed_descriptor_is_refused() {
+    // The number is absurd on purpose: a shell inherits whatever descriptors
+    // its launcher left open, and on some CI runners that includes single
+    // digits — so `2>&9` is not reliably an error at all.
     let scratch = Scratch::new();
-    let session = scratch.run("echo hi 2>&9\n");
+    let session = scratch.run("echo hi 2>&1000000\n");
     assert_eq!(session.code(), 1);
     assert!(
         session.stderr().contains("bad file descriptor"),
