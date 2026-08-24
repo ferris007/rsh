@@ -1,6 +1,7 @@
 [package]
-name = "rsh-executor"
-description = "Command execution and builtins for the rsh shell"
+name = "xp-file-descriptors"
+description = "Experiment: what dup2(fd, fd) does, and what survives exec"
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,10 +9,12 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[[bin]]
+name = "xp-file-descriptors"
+path = "src/main.rs"
+
 [dependencies]
 nix = { workspace = true }
-rsh-parser = { workspace = true }
-rsh-process = { workspace = true }
 
 [lints]
 workspace = true

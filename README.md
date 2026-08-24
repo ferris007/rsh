@@ -16,33 +16,32 @@ Unix actually works**.
 
 ## Status
 
-Phase 2 — the shell parses a real grammar. Words, quoting, escaping, and
-parameter expansion (`$HOME`, `${NAME}`, `$?`, `$$`, `~`) work; pipelines and
-redirections are parsed into a full syntax tree, though running them is Phase 3
-and Phase 4.
+Phase 3 — redirection works. Alongside Phase 2's parser and expansion, the shell
+now runs `>`, `>>`, `<`, `2>`, `2>&1`, and arbitrary descriptors, for external
+commands and builtins alike.
 
 ```console
 $ cargo run -p rsh
-rsh> echo hello
+rsh> echo hello > out.txt
+rsh> cat < out.txt
 hello
-rsh> sh -c 'exit 7'
+rsh> sh -c 'echo out; echo err >&2' > both.txt 2>&1
 rsh> echo "the last command exited $?"
-the last command exited 7
-rsh> echo ~/src
-/home/ferris/src
-rsh> nope
-rsh: nope: command not found
-rsh> echo hi > out.txt
-rsh: redirection is not implemented yet (roadmap phase 3)
-  echo hi > out.txt
-          ^^^^^^^^^
+the last command exited 0
+rsh> cat < nosuchfile
+rsh: nosuchfile: No such file or directory
+  cat < nosuchfile
+      ^^^^^^^^^^^^
+rsh> echo hi | grep hi
+rsh: pipelines are not implemented yet (roadmap phase 4)
+  echo hi | grep hi
+          ^
 rsh> exit
 ```
 
-That last one is the shape of the whole project: the line is lexed, parsed, and
-turned into a tree with a redirection node in it — and then declined, by name,
-with the phase that will deliver it. `out.txt` is not created. A shell that
-quietly handed `>` to `echo` as an argument would be lying about what it does.
+Pipelines, signals, and job control are still ahead. Syntax the shell cannot
+run yet is parsed, refused by name, and pointed at — never silently treated as
+an argument.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 

@@ -12,7 +12,9 @@
 
 mod builtin;
 mod expand;
+mod redirect;
 mod shell;
 
 pub use expand::{expand_all, expand_one, AmbiguousRedirect, Environment, MapEnv, ProcessEnv};
+pub use redirect::RedirectError;
 pub use shell::{Outcome, Shell};

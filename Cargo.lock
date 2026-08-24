@@ -49,6 +49,7 @@ dependencies = [
 name = "rsh-executor"
 version = "0.1.0"
 dependencies = [
+ "nix",
  "rsh-parser",
  "rsh-process",
 ]
@@ -59,6 +60,13 @@ version = "0.1.0"
 
 [[package]]
 name = "rsh-process"
+version = "0.1.0"
+dependencies = [
+ "nix",
+]
+
+[[package]]
+name = "xp-file-descriptors"
 version = "0.1.0"
 dependencies = [
  "nix",

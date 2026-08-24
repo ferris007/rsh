@@ -91,14 +91,22 @@ this crate is not allowed to.
 
 ## Phase 3 — I/O redirection
 
-- [ ] stdout redirection
-- [ ] stdin redirection
-- [ ] stderr redirection
-- [ ] append mode
-- [ ] file descriptor duplication
-- [ ] descriptor inheritance
+- [x] stdout redirection
+- [x] stdin redirection
+- [x] stderr redirection
+- [x] append mode
+- [x] file descriptor duplication
+- [x] descriptor inheritance
 
 **Systems concepts:** file descriptors, `dup2`, inheritance, Unix I/O.
+
+Notes: [`docs/redirection.md`](redirection.md), and
+[`experiments/file_descriptors`](../experiments/file_descriptors/), which exists
+because `dup2(fd, fd)` silently does nothing — including not clearing
+close-on-exec — and that cost this phase a real bug.
+
+Not implemented: here-documents (`<<`, needs multi-line input), `>&-` to close a
+descriptor, and `>|` for noclobber.
 
 ---
 

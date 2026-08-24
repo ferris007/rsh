@@ -9,8 +9,11 @@
 //! rather than in a unit test, because those are process-wide state and a
 //! multi-threaded test harness cannot safely assert against them.
 
+use std::fs;
 use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
+use std::sync::atomic::{AtomicU32, Ordering};
 
 /// The binary built for this test run, provided by Cargo.
 const RSH: &str = env!("CARGO_BIN_EXE_rsh");
@@ -28,13 +31,17 @@ fn run(script: &str) -> Session {
 /// Expansion reads the real process environment, so this is how a test gives it
 /// something to find.
 fn run_with_env(script: &str, vars: &[(&str, &str)]) -> Session {
+    run_full(script, vars, Path::new(env!("CARGO_MANIFEST_DIR")))
+}
+
+fn run_full(script: &str, vars: &[(&str, &str)], dir: &Path) -> Session {
     let mut command = Command::new(RSH);
     for (name, value) in vars {
         command.env(name, value);
     }
 
     let mut child = command
-        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .current_dir(dir)
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -68,6 +75,58 @@ impl Session {
 
     fn code(&self) -> i32 {
         self.0.status.code().expect("rsh was killed by a signal")
+    }
+}
+
+static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+/// A scratch directory unique to this process and call, removed on drop.
+///
+/// Redirection tests write real files. Keeping them out of the source tree
+/// means a failing test cannot leave the repository dirty.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Self {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("rsh-repl-{}-{n}", std::process::id()));
+        fs::create_dir_all(&dir).expect("failed to create scratch dir");
+        Self(dir)
+    }
+
+    /// Run a script with the shell's working directory set here, so that
+    /// redirection targets are opened inside the scratch directory.
+    fn run(&self, script: &str) -> Session {
+        run_full(script, &[], &self.0)
+    }
+
+    fn read(&self, name: &str) -> String {
+        fs::read_to_string(self.0.join(name))
+            .unwrap_or_else(|error| panic!("failed to read {name}: {error}"))
+    }
+
+    fn write(&self, name: &str, contents: &str) {
+        fs::write(self.0.join(name), contents).expect("failed to write scratch file");
+    }
+
+    fn exists(&self, name: &str) -> bool {
+        self.0.join(name).exists()
+    }
+
+    /// An absolute path inside the scratch directory, for scripts that change
+    /// the working directory before the redirection is opened.
+    fn path(&self, name: &str) -> String {
+        self.0
+            .join(name)
+            .to_str()
+            .expect("scratch path is not UTF-8")
+            .to_owned()
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
     }
 }
 
@@ -200,15 +259,10 @@ fn control_operators_are_refused_too() {
 
 #[test]
 fn refusals_underline_the_offending_characters() {
-    let session = run("echo hi > out\n");
+    let session = run("echo hi | grep hi\n");
     let stderr = session.stderr();
     assert!(stderr.contains('^'), "stderr was {stderr:?}");
-    assert!(stderr.contains("phase 3"), "stderr was {stderr:?}");
-    // The refusal has to happen before anything runs: `>` must not have
-    // created the file on the way to being declined.
-    assert!(!std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("out")
-        .exists());
+    assert!(stderr.contains("phase 4"), "stderr was {stderr:?}");
 }
 
 #[test]
@@ -298,6 +352,189 @@ fn builtins_are_found_before_path() {
     let session = run("exit 7\necho unreachable\n");
     assert_eq!(session.stdout(), "");
     assert_eq!(session.code(), 7);
+}
+
+// ---- redirection -----------------------------------------------------------
+
+#[test]
+fn output_redirection_writes_to_a_file() {
+    let scratch = Scratch::new();
+    let session = scratch.run("echo hello > out.txt\n");
+    assert_eq!(session.stdout(), "", "output reached the terminal too");
+    assert_eq!(scratch.read("out.txt"), "hello\n");
+}
+
+#[test]
+fn output_redirection_truncates_an_existing_file() {
+    let scratch = Scratch::new();
+    scratch.write("out.txt", "old contents that should be gone\n");
+    scratch.run("echo new > out.txt\n");
+    assert_eq!(scratch.read("out.txt"), "new\n");
+}
+
+#[test]
+fn append_redirection_keeps_what_is_there() {
+    let scratch = Scratch::new();
+    scratch.run("echo one > log.txt\necho two >> log.txt\n");
+    assert_eq!(scratch.read("log.txt"), "one\ntwo\n");
+}
+
+#[test]
+fn input_redirection_feeds_a_command() {
+    let scratch = Scratch::new();
+    scratch.write("in.txt", "from the file\n");
+    assert_eq!(scratch.run("cat < in.txt\n").stdout(), "from the file\n");
+}
+
+#[test]
+fn stderr_can_be_redirected_on_its_own() {
+    let scratch = Scratch::new();
+    let session = scratch.run("sh -c 'echo out; echo err >&2' 2> err.txt\n");
+    assert_eq!(session.stdout(), "out\n");
+    assert_eq!(scratch.read("err.txt"), "err\n");
+}
+
+#[test]
+fn both_streams_can_go_to_one_file() {
+    let scratch = Scratch::new();
+    let session = scratch.run("sh -c 'echo out; echo err >&2' > both.txt 2>&1\n");
+    assert_eq!(session.stdout(), "");
+    assert_eq!(session.stderr(), "");
+    let contents = scratch.read("both.txt");
+    assert!(contents.contains("out"), "contents were {contents:?}");
+    assert!(contents.contains("err"), "contents were {contents:?}");
+}
+
+#[test]
+fn redirection_order_changes_the_meaning() {
+    // `2>&1 >f` points stderr at wherever stdout was *then* — the terminal —
+    // and only afterwards moves stdout to the file. The famous gotcha, and
+    // entirely explained by the dup2 calls running left to right.
+    // `2>&1` copies descriptor 1 *as it is then* — the shell's stdout, which
+    // in this harness is a pipe. Only afterwards does stdout move to the file.
+    // So `err` arrives on the shell's stdout, not its stderr, which is the
+    // clearest possible demonstration that the order is what matters.
+    let scratch = Scratch::new();
+    let session = scratch.run("sh -c 'echo out; echo err >&2' 2>&1 > only-out.txt\n");
+    assert_eq!(scratch.read("only-out.txt"), "out\n");
+    assert_eq!(session.stdout(), "err\n");
+    assert_eq!(session.stderr(), "");
+}
+
+#[test]
+fn an_arbitrary_descriptor_can_be_redirected() {
+    let scratch = Scratch::new();
+    scratch.run("sh -c 'echo three >&3' 3> three.txt\n");
+    assert_eq!(scratch.read("three.txt"), "three\n");
+}
+
+#[test]
+fn the_opened_file_is_not_leaked_into_the_child() {
+    // The shell opens the target at the lowest free descriptor, which is 3.
+    // Without close-on-exec the program would inherit it and `>&3` would
+    // silently succeed. It must not: a program gets the descriptors the user
+    // asked for and no accidental extras.
+    let scratch = Scratch::new();
+    let session = scratch.run("sh -c 'echo leaked >&3' > out.txt\n");
+    assert_eq!(
+        scratch.read("out.txt"),
+        "",
+        "descriptor 3 leaked into the child"
+    );
+    assert!(
+        session
+            .stderr()
+            .to_lowercase()
+            .contains("bad file descriptor"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+}
+
+#[test]
+fn redirection_applies_to_builtins_too() {
+    // A builtin runs inside the shell, so there is no child to arrange
+    // descriptors for. The shell moves its own and puts them back.
+    // The target is absolute because redirections are opened *before* the
+    // builtin runs — at which point the shell is still in /usr.
+    let scratch = Scratch::new();
+    let where_txt = scratch.path("where.txt");
+    let session = scratch.run(&format!(
+        "cd /usr\ncd - > {where_txt}\necho still working\n"
+    ));
+    assert_eq!(session.stdout(), "still working\n");
+    assert!(
+        !scratch.read("where.txt").is_empty(),
+        "the announcement was lost"
+    );
+}
+
+#[test]
+fn the_shell_keeps_its_own_descriptors() {
+    // After redirecting a builtin the shell's stdout must be back where it
+    // started, or every later command would write into the file.
+    let scratch = Scratch::new();
+    let session = scratch.run("cd . > swallow.txt\necho back on stdout\n");
+    assert_eq!(session.stdout(), "back on stdout\n");
+}
+
+#[test]
+fn a_failed_redirection_stops_the_command_from_running() {
+    let scratch = Scratch::new();
+    let session = scratch.run("echo hi < missing.txt\n");
+    assert_eq!(session.stdout(), "", "the command ran anyway");
+    assert_eq!(session.code(), 1);
+    assert!(
+        session.stderr().contains("No such file or directory"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+}
+
+#[test]
+fn the_file_is_created_even_when_the_command_does_not_exist() {
+    // Redirections are set up before the command is looked up. Every POSIX
+    // shell behaves this way, and `> lockfile` depends on it.
+    let scratch = Scratch::new();
+    let session = scratch.run("definitely-not-a-command > made.txt\n");
+    assert_eq!(session.code(), 127);
+    assert!(scratch.exists("made.txt"));
+    assert_eq!(scratch.read("made.txt"), "");
+}
+
+#[test]
+fn a_redirection_target_must_expand_to_one_word() {
+    let scratch = Scratch::new();
+    let session = scratch.run("echo hi > $UNSET\n");
+    assert_eq!(session.code(), 1);
+    assert!(
+        session.stderr().contains("ambiguous redirect"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+}
+
+#[test]
+fn duplicating_a_closed_descriptor_is_refused() {
+    // The number is absurd on purpose: a shell inherits whatever descriptors
+    // its launcher left open, and on some CI runners that includes single
+    // digits — so `2>&9` is not reliably an error at all.
+    let scratch = Scratch::new();
+    let session = scratch.run("echo hi 2>&1000000\n");
+    assert_eq!(session.code(), 1);
+    assert!(
+        session.stderr().contains("bad file descriptor"),
+        "stderr was {:?}",
+        session.stderr()
+    );
+}
+
+#[test]
+fn redirection_targets_are_expanded() {
+    let scratch = Scratch::new();
+    let session = run_full("echo hi > $OUT\n", &[("OUT", "out.txt")], &scratch.0);
+    assert_eq!(session.stdout(), "");
+    assert_eq!(scratch.read("out.txt"), "hi\n");
 }
 
 // ---- expansion -------------------------------------------------------------

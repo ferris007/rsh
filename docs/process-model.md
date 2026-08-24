@@ -105,6 +105,19 @@ means the current directory, which is a genuine POSIX rule and a genuine
 security footgun — `rsh` implements it and says so here rather than silently
 diverging.
 
+## Descriptors in the window
+
+Redirection happens in the same window, for the same reason: it is the only
+moment when a process's descriptors can be rearranged without disturbing the
+shell's own. The child calls `dup2` once per redirection and nothing else —
+async-signal-safe, no allocation.
+
+Opening the file happens in the parent, before the fork, exactly like `PATH`
+resolution. A missing file or a permission error is an ordinary `Result` there
+and an unreportable exit code in the child.
+
+The full account is in [`redirection.md`](redirection.md).
+
 ## What is deliberately missing
 
 Phase 1 spawns one process, waits for it, and moves on. There are no process

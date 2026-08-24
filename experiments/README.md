@@ -23,6 +23,7 @@ experiments/<name>/
 | Experiment | Question |
 | --- | --- |
 | [`fork_exec`](fork_exec/) | A forked child that terminates with `exit()` instead of `_exit()` — what does it take with it? |
+| [`file_descriptors`](file_descriptors/) | `dup2` clears close-on-exec on its target. What happens when source and target are the same descriptor? |
 
 More arrive alongside the phases that need them; see
 [the roadmap](../docs/roadmap.md).
