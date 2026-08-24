@@ -6,7 +6,13 @@
 # The library crates this binary is built from live in the same source tree and
 # are not separately useful, so nothing is installed for them.
 override_dh_auto_install:
-	dh_auto_install -- --bin whelk
+	dh_auto_install -- -p whelk --bin whelk
+
+# Only the shell. The workspace also holds benchmarks and the standalone
+# experiments, whose dependencies are not build dependencies of this package
+# and are not present in a buildd chroot.
+override_dh_auto_build:
+	dh_auto_build -- -p whelk
 
 # The test suite drives a real shell over a pseudoterminal and spawns processes.
 # It passes on a normal machine and is not something to make a build depend on
