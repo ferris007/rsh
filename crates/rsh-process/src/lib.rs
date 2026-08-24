@@ -11,10 +11,17 @@ mod pipe;
 mod redirect;
 mod signal;
 mod status;
+mod terminal;
 
-pub use command::{Child, Command, SpawnError};
+pub use command::{Child, Command, SpawnError, Waited};
 pub use path::{resolve, ResolveError};
 pub use pipe::Pipe;
 pub use redirect::{Redirections, Restore};
-pub use signal::{install as install_signal_handlers, shutdown_requested, take_interrupt};
-pub use status::{ExitStatus, EXIT_NOT_EXECUTABLE, EXIT_NOT_FOUND, EXIT_SIGNAL_BASE};
+pub use signal::{
+    install as install_signal_handlers, shutdown_requested, take_child_event, take_interrupt,
+};
+pub use status::{
+    collect_child_events, collect_child_events_blocking, ChildEvent, ExitStatus,
+    EXIT_NOT_EXECUTABLE, EXIT_NOT_FOUND, EXIT_SIGNAL_BASE,
+};
+pub use terminal::{foreground_group, give_terminal_to, is_interactive};

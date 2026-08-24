@@ -25,23 +25,27 @@ has to manage correctly while a user is watching.
                  └────────────┬─────────────┘   pipeline assembly, shell state
                               │  "run this program with these fds"
                  ┌────────────▼─────────────┐
-                 │  rsh-process             │  fork / exec / wait, PATH lookup
-                 └────────────┬─────────────┘
+                 │  rsh-process             │  fork / exec / wait, PATH lookup,
+                 └────────────┬─────────────┘  pipes, signals, process groups
                               │
                  ┌────────────▼─────────────┐
                  │  kernel                  │
                  └──────────────────────────┘
 ```
 
-Two crates join later, cutting across the stack rather than sitting in it:
+Two crates cut across the stack rather than sitting in it:
 
-- `rsh-job` — the job table, process groups, foreground/background transitions
-  (Phase 6).
-- `rsh-terminal` — terminal modes, `tcsetpgrp`, resize, PTYs (Phase 7).
+- `rsh-job` — the job table, process groups, foreground/background transitions.
+  Arrived in Phase 6.
+- `rsh-terminal` — terminal modes, resize, PTYs (Phase 7). Terminal *ownership*
+  (`tcsetpgrp`) already lives in `rsh-process`, because deciding which process
+  group owns the terminal is a process-table operation that happens to be
+  spelled with a terminal descriptor.
 
-They are separate because job control and terminal ownership are *not* a step
-in the pipeline from text to process. They are long-lived state that both the
-REPL and the executor consult.
+They are separate because job control and terminal ownership are *not* a step in
+the pipeline from text to process. They are long-lived state that both the REPL
+and the executor consult — a job outlives the command that created it, which is
+the whole reason it needs a table.
 
 ## Rules the layering enforces
 

@@ -359,7 +359,7 @@ fn errors_point_at_the_offending_characters() {
 
 #[test]
 fn unimplemented_operators_are_refused_by_name() {
-    for input in ["a && b", "a || b", "a ; b", "a &", "cat << EOF", "(a)"] {
+    for input in ["a && b", "a || b", "a ; b", "cat << EOF", "(a)"] {
         let err = error(input);
         assert!(
             matches!(err, ParseError::Unsupported { .. }),
@@ -369,12 +369,38 @@ fn unimplemented_operators_are_refused_by_name() {
 }
 
 #[test]
-fn background_naming_points_at_the_phase_that_implements_it() {
-    let ParseError::Unsupported { token, phase, .. } = error("sleep 5 &") else {
-        panic!("expected an unsupported-syntax error")
-    };
-    assert_eq!(token, "&");
-    assert_eq!(phase, Some(6));
+fn a_trailing_ampersand_marks_the_pipeline_as_background() {
+    let pipeline = parse("sleep 5 &").unwrap().unwrap();
+    assert!(pipeline.background());
+    assert_eq!(
+        pipeline.commands()[0].words()[0].as_literal(),
+        Some("sleep")
+    );
+
+    // The `&` is a terminator, not an argument.
+    assert_eq!(pipeline.commands()[0].words().len(), 2);
+}
+
+#[test]
+fn a_whole_pipeline_can_go_to_the_background() {
+    let pipeline = parse("cat f | grep x &").unwrap().unwrap();
+    assert!(pipeline.background());
+    assert_eq!(pipeline.commands().len(), 2);
+}
+
+#[test]
+fn without_an_ampersand_a_pipeline_is_foreground() {
+    assert!(!parse("sleep 5").unwrap().unwrap().background());
+}
+
+#[test]
+fn an_ampersand_only_terminates_it_does_not_separate() {
+    // `a & b` is two commands in bash, which needs a list grammar this parser
+    // does not have. Refusing is better than silently running only `a`.
+    assert!(matches!(
+        error("sleep 5 & echo hi"),
+        ParseError::UnexpectedToken { .. }
+    ));
 }
 
 // ---- tokens ----------------------------------------------------------------

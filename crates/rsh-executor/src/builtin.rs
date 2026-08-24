@@ -12,6 +12,9 @@
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use nix::sys::signal::Signal;
+use rsh_job::{JobSpec, JobState, JobTable};
+
 use crate::shell::Outcome;
 
 /// Status returned by a builtin that was used incorrectly.
@@ -20,11 +23,27 @@ const EXIT_USAGE: i32 = 1;
 /// Status for `exit` with a non-numeric argument, matching POSIX shells.
 const EXIT_BAD_ARGUMENT: i32 = 2;
 
+/// Everything a builtin may reach outside its own arguments.
+///
+/// Passed in rather than reached for, so the set of things a builtin can touch
+/// is visible in one place. `jobs`, `fg`, and `bg` exist *because* they need
+/// this — they are builtins for the same reason `cd` is, in that their whole
+/// effect is on state that only the shell process has.
+pub(crate) struct Context<'a> {
+    pub jobs: &'a mut JobTable,
+    pub job_control: bool,
+    pub shell_pgid: nix::unistd::Pid,
+    pub last_status: i32,
+}
+
 /// A command implemented by the shell itself.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Builtin {
     Cd,
     Exit,
+    Jobs,
+    Fg,
+    Bg,
 }
 
 impl Builtin {
@@ -36,6 +55,9 @@ impl Builtin {
         match name {
             "cd" => Some(Self::Cd),
             "exit" => Some(Self::Exit),
+            "jobs" => Some(Self::Jobs),
+            "fg" => Some(Self::Fg),
+            "bg" => Some(Self::Bg),
             _ => None,
         }
     }
@@ -45,10 +67,13 @@ impl Builtin {
     /// `args` excludes the builtin's own name and has already been expanded, so
     /// `cd $HOME` and `cd /home/ferris` are indistinguishable here — which is
     /// the point of doing expansion before dispatch.
-    pub(crate) fn run(self, args: &[String], last_status: i32) -> (Outcome, i32) {
+    pub(crate) fn run(self, args: &[String], ctx: &mut Context<'_>) -> (Outcome, i32) {
         match self {
             Self::Cd => (Outcome::Continue, cd(args)),
-            Self::Exit => exit(args, last_status),
+            Self::Exit => exit(args, ctx.last_status),
+            Self::Jobs => (Outcome::Continue, jobs(ctx)),
+            Self::Fg => (Outcome::Continue, fg(args, ctx)),
+            Self::Bg => (Outcome::Continue, bg(args, ctx)),
         }
     }
 }
@@ -149,6 +174,156 @@ fn exit(args: &[String], last_status: i32) -> (Outcome, i32) {
             // asking again.
             eprintln!("rsh: exit: too many arguments");
             (Outcome::Continue, EXIT_USAGE)
+        }
+    }
+}
+
+/// List the jobs the shell is tracking.
+///
+/// Deliberately does not reap: `jobs` reports what the shell knows, and the
+/// knowing is refreshed once per prompt. A `jobs` that went and collected
+/// statuses would show a different answer from the notification printed a
+/// moment earlier, for no reason a user could see.
+fn jobs(ctx: &mut Context<'_>) -> i32 {
+    for job in ctx.jobs.iter() {
+        println!(
+            "[{}]{}  {:<22}  {}",
+            job.id(),
+            ctx.jobs.marker(job.id()),
+            job.state().describe(),
+            job.command()
+        );
+    }
+    0
+}
+
+/// Bring a job to the foreground.
+///
+/// Three steps, in this order: hand over the terminal, continue the job, wait
+/// for it. Continuing before the handover would let the job read from a
+/// terminal it does not own and be stopped again with `SIGTTIN` — the resume
+/// would appear to do nothing.
+fn fg(args: &[String], ctx: &mut Context<'_>) -> i32 {
+    if !ctx.job_control {
+        eprintln!("rsh: fg: no job control without a terminal");
+        return EXIT_USAGE;
+    }
+
+    let Some((id, pgid, command)) = select(args, ctx, "fg") else {
+        return EXIT_USAGE;
+    };
+
+    println!("{command}");
+
+    let _ = rsh_process::give_terminal_to(pgid);
+    if let Err(error) = nix::sys::signal::killpg(pgid, Signal::SIGCONT) {
+        eprintln!("rsh: fg: {error}");
+        let _ = rsh_process::give_terminal_to(ctx.shell_pgid);
+        return EXIT_USAGE;
+    }
+
+    if let Some(job) = ctx.jobs.find_mut(JobSpec::Id(id)) {
+        job.resumed();
+        job.mark_reported();
+    }
+    ctx.jobs.make_current(id);
+
+    let status = wait_for(ctx, id, &command);
+
+    let _ = rsh_process::give_terminal_to(ctx.shell_pgid);
+    status
+}
+
+/// Resume a job in the background.
+///
+/// The same `SIGCONT`, without the terminal and without the wait. Which is the
+/// entire difference between `fg` and `bg`.
+fn bg(args: &[String], ctx: &mut Context<'_>) -> i32 {
+    if !ctx.job_control {
+        eprintln!("rsh: bg: no job control without a terminal");
+        return EXIT_USAGE;
+    }
+
+    let Some((id, pgid, command)) = select(args, ctx, "bg") else {
+        return EXIT_USAGE;
+    };
+
+    if let Err(error) = nix::sys::signal::killpg(pgid, Signal::SIGCONT) {
+        eprintln!("rsh: bg: {error}");
+        return EXIT_USAGE;
+    }
+
+    if let Some(job) = ctx.jobs.find_mut(JobSpec::Id(id)) {
+        job.resumed();
+        job.mark_reported();
+    }
+
+    println!("[{id}]+ {command} &");
+    0
+}
+
+/// Resolve a job specifier to something the caller can act on.
+fn select(
+    args: &[String],
+    ctx: &Context<'_>,
+    builtin: &str,
+) -> Option<(rsh_job::JobId, nix::unistd::Pid, String)> {
+    if args.len() > 1 {
+        eprintln!("rsh: {builtin}: too many arguments");
+        return None;
+    }
+
+    let spec = match JobSpec::parse(args.first().map(String::as_str)) {
+        Ok(spec) => spec,
+        Err(error) => {
+            eprintln!("rsh: {builtin}: {error}");
+            return None;
+        }
+    };
+
+    match ctx.jobs.find(spec) {
+        Some(job) if job.state().is_alive() => {
+            Some((job.id(), job.pgid(), job.command().to_owned()))
+        }
+        Some(job) => {
+            eprintln!("rsh: {builtin}: job {} has finished", job.id());
+            None
+        }
+        None => {
+            eprintln!("rsh: {builtin}: no such job");
+            None
+        }
+    }
+}
+
+/// Wait for a resumed job, which may finish or stop again.
+fn wait_for(ctx: &mut Context<'_>, id: rsh_job::JobId, command: &str) -> i32 {
+    loop {
+        let events = rsh_process::collect_child_events_blocking();
+        ctx.jobs.apply(&events);
+
+        let Some(job) = ctx.jobs.find(JobSpec::Id(id)) else {
+            return 0;
+        };
+
+        match job.state() {
+            JobState::Done(status) => {
+                // Marked reported so the next prompt does not announce a job
+                // the user just watched finish in the foreground.
+                let code = status.code();
+                if let Some(job) = ctx.jobs.find_mut(JobSpec::Id(id)) {
+                    job.mark_reported();
+                }
+                return code;
+            }
+            JobState::Stopped => {
+                println!("\n[{id}]+  Stopped                 {command}");
+                if let Some(job) = ctx.jobs.find_mut(JobSpec::Id(id)) {
+                    job.mark_reported();
+                }
+                return 148;
+            }
+            JobState::Running => continue,
         }
     }
 }

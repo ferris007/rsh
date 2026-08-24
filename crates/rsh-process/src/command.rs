@@ -86,6 +86,12 @@ pub struct Command {
     argv_ptrs: Vec<*const libc::c_char>,
     /// Descriptor changes to make in the child, in order.
     redirections: Redirections,
+    /// The process group to join, if the shell is doing job control.
+    ///
+    /// `Some(None)` means "lead a new group"; `Some(Some(pgid))` means "join
+    /// this one". `None` means leave the group alone, which is what a shell
+    /// without job control does.
+    process_group: Option<Option<Pid>>,
 }
 
 impl Command {
@@ -122,7 +128,25 @@ impl Command {
             _argv: argv,
             argv_ptrs,
             redirections: Redirections::new(),
+            process_group: None,
         })
+    }
+
+    /// Put the child in a process group.
+    ///
+    /// `None` makes it the leader of a new group whose id is its own pid;
+    /// `Some(pgid)` joins an existing one. Every stage of a pipeline joins the
+    /// first stage's group, which is what makes one Ctrl-C reach all of them.
+    ///
+    /// The call is made in *both* parent and child, deliberately. Either may be
+    /// scheduled first after the fork, and the group has to exist before
+    /// anything can signal it or hand it the terminal — so both do it and one
+    /// of the two calls is always redundant. Which one is not knowable in
+    /// advance, so neither can be dropped.
+    #[must_use]
+    pub fn process_group(mut self, pgid: Option<Pid>) -> Self {
+        self.process_group = Some(pgid);
+        self
     }
 
     /// Attach descriptor changes to apply in the child.
@@ -152,6 +176,38 @@ impl Command {
 
             Ok(ForkResult::Child) => {
                 // ---- async-signal-safe territory begins here ----
+
+                // Join the process group before anything else, so that a
+                // signal aimed at the job cannot arrive while this process is
+                // still in the shell's group.
+                //
+                // SAFETY: `setpgid` is async-signal-safe. A failure here is not
+                // worth aborting for — the process runs, it is simply in the
+                // wrong group — and there is no way to report it from here.
+                if let Some(pgid) = self.process_group {
+                    let target = pgid.map_or(0, Pid::as_raw);
+                    // SAFETY: `setpgid` is async-signal-safe. A failure is not
+                    // worth aborting for — the process runs, it is simply in
+                    // the wrong group — and there is no way to report it here.
+                    unsafe { libc::setpgid(0, target) };
+                }
+
+                // Put the job-control signals back to their defaults.
+                //
+                // The shell ignores SIGTSTP, SIGTTIN, and SIGTTOU so that it
+                // cannot suspend itself while moving the terminal around. But
+                // SIG_IGN is inherited across exec, so without this every child
+                // would be immune to Ctrl-Z — the shell's self-protection would
+                // silently become a property of every program it runs.
+                //
+                // This is the same trap SIGPIPE sets below, and the reason the
+                // shell uses handlers for SIGINT and SIGQUIT: exec resets those
+                // for free.
+                for signal in [libc::SIGTSTP, libc::SIGTTIN, libc::SIGTTOU] {
+                    // SAFETY: `signal` is async-signal-safe, and SIG_DFL
+                    // installs no code that could run in a signal context.
+                    unsafe { libc::signal(signal, libc::SIG_DFL) };
+                }
 
                 // Descriptors first: the program must start with the ones the
                 // user asked for. `apply_raw` calls only `dup2`, which is
@@ -219,6 +275,15 @@ impl Command {
     }
 }
 
+/// How a child stopped being runnable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Waited {
+    /// It ended.
+    Finished(ExitStatus),
+    /// It was suspended and is still there.
+    Stopped(Signal),
+}
+
 /// A running child process.
 #[derive(Debug)]
 pub struct Child {
@@ -240,6 +305,34 @@ impl Child {
     /// error rather than a race.
     pub fn wait(self) -> Result<ExitStatus, SpawnError> {
         self.wait_with(|_| {})
+    }
+
+    /// Wait for the child to end *or* stop, whichever comes first.
+    ///
+    /// Takes `&self` rather than consuming: a stopped child is still a child,
+    /// and the shell may well wait for it again after resuming it. Only the
+    /// consuming [`Child::wait`] promises the process has been reaped.
+    ///
+    /// This is the call a shell with job control wants. [`Child::wait`] hides
+    /// stops by continuing through them, which is right only when there is
+    /// nowhere to put a suspended job.
+    pub fn wait_or_stop(&self) -> Result<Waited, SpawnError> {
+        loop {
+            match waitpid(self.pid, Some(WaitPidFlag::WUNTRACED)) {
+                Ok(WaitStatus::Stopped(_, signal)) => return Ok(Waited::Stopped(signal)),
+                Ok(status) => match ExitStatus::from_wait(status) {
+                    Some(status) => return Ok(Waited::Finished(status)),
+                    None => continue,
+                },
+                Err(Errno::EINTR) => continue,
+                Err(errno) => return Err(SpawnError::Wait(errno)),
+            }
+        }
+    }
+
+    /// Resume a stopped child.
+    pub fn resume(&self) -> Result<(), SpawnError> {
+        kill(self.pid, Signal::SIGCONT).map_err(SpawnError::Wait)
     }
 
     /// Block until the child terminates, reporting any stop along the way.

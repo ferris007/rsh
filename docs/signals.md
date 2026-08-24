@@ -160,14 +160,10 @@ Two details:
 
 ## Not implemented
 
-**`SIGCHLD`.** The shell waits for its children synchronously, so there is
-nothing for an asynchronous death notification to tell it. `SIGCHLD` earns its
-place when a job can outlive the command that started it — background jobs, in
-Phase 6. Installing a handler now would be machinery with no purpose, which is
-worse than a gap.
-
-**Forwarding signals to children.** `SIGTERM` to the shell does not currently
-terminate a running foreground command. Doing it properly means signalling the
-job's process group, which is Phase 6.
+**Forwarding signals to children.** `SIGTERM` to the shell does not terminate a
+running foreground job.
 
 **`SIGWINCH`.** Terminal resize, Phase 7.
+
+`SIGCHLD` arrived in Phase 6, where background jobs finally gave it something to
+report. See [`job-control.md`](job-control.md).

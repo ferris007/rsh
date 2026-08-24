@@ -16,31 +16,36 @@ Unix actually works**.
 
 ## Status
 
-Phase 5 — signals. Ctrl-C no longer kills the shell: it abandons the line,
-reports 130, and prompts again. Ctrl-Z on a foreground command no longer wedges
-it either. `SIGTERM` and `SIGHUP` shut it down cleanly.
+Phase 6 — job control. Background jobs, `jobs`/`fg`/`bg`, Ctrl-Z suspension, and
+process groups, so one Ctrl-C reaches a whole pipeline and leaves everything
+else alone.
 
 ```console
 $ cargo run -p rsh
+rsh> sleep 30 &
+[1] 4242
+rsh> sleep 30
+^Z
+[2]+  Stopped                 sleep 30
+rsh> jobs
+[1]-  Running                 sleep 30
+[2]+  Stopped                 sleep 30
+rsh> bg
+[2]+ sleep 30 &
 rsh> printf '3\n1\n2\n' | sort | head -2
 1
 2
-rsh> sleep 30
-^C
-rsh> echo $?
-130
-rsh> yes | head -2
-y
-y
-rsh> echo hello > out.txt
-rsh> cat < out.txt
-hello
 rsh> exit
 ```
 
-Job control, terminal handling, and the interactive layer are still ahead.
-Syntax the shell cannot run yet is parsed, refused by name, and pointed at —
-never silently treated as an argument.
+Ctrl-C reaches the whole foreground pipeline and nothing else, because every job
+gets its own process group. That one fact is most of what job control is — see
+[`experiments/process_groups`](experiments/process_groups/), which explains why
+`cat &` stops the instant it starts.
+
+Terminal management, the interactive layer, and the event-driven model are
+still ahead. Syntax the shell cannot run yet is parsed, refused by name, and
+pointed at — never silently treated as an argument.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 
@@ -73,7 +78,8 @@ Requires Rust 1.85 or newer (see `rust-version` in `Cargo.toml`).
 ```text
 crates/rsh            the REPL: read a line, dispatch it, loop
 crates/rsh-parser     text → AST; never touches the operating system
-crates/rsh-executor   builtins, dispatch, shell state
+crates/rsh-executor   expansion, builtins, dispatch, shell state
+crates/rsh-job        the job table and process-group bookkeeping
 crates/rsh-process    fork / exec / wait, PATH resolution — all the `unsafe`
 docs/                 architecture and systems notes
 experiments/          standalone programs, each answering one systems question

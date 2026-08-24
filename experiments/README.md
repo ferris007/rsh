@@ -26,6 +26,7 @@ experiments/<name>/
 | [`file_descriptors`](file_descriptors/) | `dup2` clears close-on-exec on its target. What happens when source and target are the same descriptor? |
 | [`pipes`](pipes/) | A Rust program ignores `SIGPIPE` before `main` runs. What happens to the programs it `exec`s? |
 | [`signals`](signals/) | You press Ctrl-C. Who actually gets the signal? |
+| [`process_groups`](process_groups/) | Two processes, same terminal, both blocked in `read`. What happens to the one that does not own it? |
 
 More arrive alongside the phases that need them; see
 [the roadmap](../docs/roadmap.md).

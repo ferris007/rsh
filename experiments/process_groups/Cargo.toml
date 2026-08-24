@@ -1,6 +1,7 @@
 [package]
-name = "rsh-executor"
-description = "Command execution and builtins for the rsh shell"
+name = "xp-process-groups"
+description = "Experiment: what happens when a background job reads from the terminal"
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,9 +11,6 @@ authors.workspace = true
 
 [dependencies]
 nix = { workspace = true }
-rsh-job = { workspace = true }
-rsh-parser = { workspace = true }
-rsh-process = { workspace = true }
 
 [lints]
 workspace = true

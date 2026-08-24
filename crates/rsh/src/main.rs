@@ -46,6 +46,11 @@ fn main() -> ExitCode {
             break 128 + signal;
         }
 
+        // Say what background jobs have been up to, before the prompt rather
+        // than the instant it happens: a notification that arrived mid-keystroke
+        // would write over whatever the user was typing.
+        shell.report_jobs();
+
         if interactive {
             prompt();
         }
@@ -58,6 +63,13 @@ fn main() -> ExitCode {
                 if interactive {
                     // The user's Ctrl-D left the cursor after the prompt.
                     eprintln!();
+                }
+
+                // Ctrl-D with stopped jobs gets the same warning `exit` does:
+                // they would be left suspended with nothing able to resume
+                // them. The second Ctrl-D goes through.
+                if !shell.confirm_exit() {
+                    continue;
                 }
 
                 // A shutdown request and an end of input can arrive together —

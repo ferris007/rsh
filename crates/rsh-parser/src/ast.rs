@@ -32,17 +32,32 @@ use crate::word::Word;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pipeline {
     commands: Vec<Command>,
+    background: bool,
     span: Span,
 }
 
 impl Pipeline {
     /// Build a pipeline. At least one command is required.
-    pub fn new(commands: Vec<Command>, span: Span) -> Self {
+    pub fn new(commands: Vec<Command>, background: bool, span: Span) -> Self {
         debug_assert!(
             !commands.is_empty(),
             "a pipeline needs at least one command"
         );
-        Self { commands, span }
+        Self {
+            commands,
+            background,
+            span,
+        }
+    }
+
+    /// Whether the pipeline ended with `&`.
+    ///
+    /// A background pipeline is not a different kind of pipeline — the same
+    /// processes are started the same way. The difference is entirely in what
+    /// the shell does next: whether it waits and hands over the terminal, or
+    /// records the job and prompts again.
+    pub fn background(&self) -> bool {
+        self.background
     }
 
     /// The commands, left to right.

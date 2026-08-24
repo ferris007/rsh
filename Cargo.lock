@@ -51,7 +51,16 @@ name = "rsh-executor"
 version = "0.1.0"
 dependencies = [
  "nix",
+ "rsh-job",
  "rsh-parser",
+ "rsh-process",
+]
+
+[[package]]
+name = "rsh-job"
+version = "0.1.0"
+dependencies = [
+ "nix",
  "rsh-process",
 ]
 
@@ -82,6 +91,13 @@ dependencies = [
 
 [[package]]
 name = "xp-pipes"
+version = "0.1.0"
+dependencies = [
+ "nix",
+]
+
+[[package]]
+name = "xp-process-groups"
 version = "0.1.0"
 dependencies = [
  "nix",

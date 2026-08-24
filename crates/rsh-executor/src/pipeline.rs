@@ -1,39 +1,35 @@
-//! Running a pipeline.
+//! Running a pipeline as a job.
 //!
-//! `a | b | c` is three processes and two pipes, all alive at once. They are
-//! not run in sequence and their output is not buffered between stages: `c`
-//! starts reading before `a` has finished writing, which is why
-//! `find / | head -1` answers immediately instead of after cataloguing a disk.
+//! Every external command goes through here, including a pipeline of one. That
+//! is not uniformity for its own sake: with job control, a lone `sleep 30`
+//! needs a process group and the terminal exactly as much as `a | b | c` does,
+//! and a shell with two spawning paths has two places to get that wrong.
 //!
 //! ```text
 //!          pipe 0              pipe 1
 //!    a ──────────────► b ──────────────► c
-//!    │                 │                 │
-//!    └── stdout        └── stdin/stdout  └── stdin
-//!        is the            are both          is the
-//!        write end         pipe ends         read end
+//!    └──────────── process group 4242 ───┘
+//!                        ▲
+//!                        │ the terminal's foreground group,
+//!                        │ if this job is in the foreground
 //! ```
 //!
-//! # The rule that makes it work
+//! # The rule pipes depend on
 //!
-//! A reader sees end-of-input when *every* write end of its pipe is closed —
-//! not most of them, all. Since every child inherits a copy of every pipe, and
-//! the shell holds its own copies too, a single stray descriptor anywhere makes
-//! the reader wait forever.
-//!
-//! Two mechanisms handle that, and between them no descriptor is ever closed by
-//! hand:
-//!
-//! * **Children**: pipe ends are close-on-exec, and `dup2` clears that flag
-//!   only on the one or two a child was given. `exec` closes the rest.
-//! * **The shell**: the pipes are owned by a local, and dropping it closes
-//!   every end once the children are forked.
+//! A reader sees end-of-input only when *every* write end of its pipe is
+//! closed, and every child inherits a copy of every pipe. No pipe descriptor is
+//! closed by hand here: pipe ends are close-on-exec, `dup2` clears that flag on
+//! the one or two a child was given, and the shell's own copies go when the
+//! `pipes` local is dropped.
 
 use std::io::Write;
 use std::os::fd::AsRawFd;
 
+use nix::sys::signal::Signal;
+use nix::unistd::{setpgid, Pid};
+use rsh_job::JobTable;
 use rsh_parser::Pipeline;
-use rsh_process::{Child, Pipe, Redirections};
+use rsh_process::{Child, ExitStatus, Pipe, Redirections, Waited};
 
 use crate::builtin::Builtin;
 use crate::expand::{expand_all, Environment};
@@ -56,37 +52,42 @@ impl std::fmt::Display for PipelineError {
             Self::Redirect(error) => write!(f, "{error}"),
             Self::Process(error) => write!(f, "{error}"),
             Self::Builtin(name) => {
-                write!(
-                    f,
-                    "`{name}` is a shell builtin and cannot appear in a pipeline yet"
-                )
+                write!(f, "`{name}` is a shell builtin and cannot be a job yet")
             }
         }
     }
 }
 
-/// What a prepared pipeline stage needs before anything is forked.
+/// Everything the executor needs to place a job correctly.
+pub struct Context<'a> {
+    /// The shell's job table.
+    pub jobs: &'a mut JobTable,
+    /// Whether the shell owns a terminal and can hand it over.
+    ///
+    /// False for a script or a pipe. Job control is switched off entirely in
+    /// that case rather than half-performed: there is no terminal to give away,
+    /// nobody to type Ctrl-Z, and no reason to isolate jobs into their own
+    /// groups.
+    pub job_control: bool,
+    /// The shell's own process group, to take the terminal back.
+    pub shell_pgid: Pid,
+}
+
+/// What a prepared stage needs before anything is forked.
 struct Stage {
     argv: Vec<String>,
     redirections: Redirections,
 }
 
-/// Run a pipeline, returning the status the shell should report.
-///
-/// Every stage is prepared first — expanded, resolved, its files opened — and
-/// only then is anything forked. A pipeline that cannot be set up runs no
-/// processes at all, rather than leaving half of it running and the other half
-/// reporting an error.
-pub fn run(pipeline: &Pipeline, env: &dyn Environment) -> Result<i32, PipelineError> {
+/// Run a pipeline, as a foreground job or a background one.
+pub fn run(
+    pipeline: &Pipeline,
+    env: &dyn Environment,
+    ctx: &mut Context<'_>,
+    command_text: &str,
+) -> Result<i32, PipelineError> {
     let commands = pipeline.commands();
-    debug_assert!(
-        commands.len() > 1,
-        "a single command does not need a pipeline"
-    );
 
-    // One pipe between each adjacent pair. Held here, in the shell, until every
-    // child has been forked — and then dropped, which closes the shell's copies
-    // and lets the readers reach end-of-input.
     let pipes: Vec<Pipe> = (1..commands.len())
         .map(|_| Pipe::new())
         .collect::<Result<_, _>>()
@@ -97,9 +98,6 @@ pub fn run(pipeline: &Pipeline, env: &dyn Environment) -> Result<i32, PipelineEr
     for (index, command) in commands.iter().enumerate() {
         let mut redirections = Redirections::new();
 
-        // Stdin from the previous pipe, stdout to the next. First and last
-        // stages keep the shell's own, which is how a pipeline stays connected
-        // to the terminal at both ends.
         // Recorded as raw descriptors, not owned ones: the pipes outlive every
         // fork below and are closed by the shell in one place, deliberately.
         if let Some(pipe) = index.checked_sub(1).and_then(|prev| pipes.get(prev)) {
@@ -116,10 +114,6 @@ pub fn run(pipeline: &Pipeline, env: &dyn Environment) -> Result<i32, PipelineEr
         let argv = expand_all(command.words(), env);
 
         if let Some(program) = argv.first() {
-            // A builtin changes the shell's own state, so running one here
-            // would mean either forking the shell — a subshell, which is
-            // Phase 6 machinery — or letting `cd` in a pipeline move the real
-            // shell, which no other shell does.
             if Builtin::lookup(program).is_some() {
                 return Err(PipelineError::Builtin(program.clone()));
             }
@@ -132,15 +126,159 @@ pub fn run(pipeline: &Pipeline, env: &dyn Environment) -> Result<i32, PipelineEr
     let _ = std::io::stdout().flush();
 
     let mut children = Vec::with_capacity(stages.len());
+    let mut pgid: Option<Pid> = None;
+
     for stage in stages {
-        children.push(spawn(stage));
+        let spawned = spawn(stage, pgid, ctx.job_control);
+
+        if let Spawned::Running(child) = &spawned {
+            // The first stage leads the group; the rest join it. Set from the
+            // parent as well as the child, because either may run first after
+            // the fork and the group must exist before anything can signal it.
+            // One of the two calls is always redundant, and which one is not
+            // knowable in advance.
+            let leader = pgid.unwrap_or_else(|| child.pid());
+            if ctx.job_control {
+                let _ = setpgid(child.pid(), leader);
+            }
+            pgid.get_or_insert(leader);
+        }
+
+        children.push(spawned);
     }
 
     // The shell's own copies. Until these go, every reader still has a live
     // write end somewhere and would block at end-of-input.
     drop(pipes);
 
-    Ok(wait_all(children))
+    let pgid = pgid.unwrap_or(ctx.shell_pgid);
+
+    if pipeline.background() {
+        return Ok(background(children, pgid, ctx, command_text));
+    }
+
+    Ok(foreground(children, pgid, ctx, command_text))
+}
+
+/// Record a background job and return to the prompt.
+fn background(children: Vec<Spawned>, pgid: Pid, ctx: &mut Context<'_>, command_text: &str) -> i32 {
+    let pids: Vec<Pid> = children.iter().filter_map(Spawned::pid).collect();
+
+    if pids.is_empty() {
+        return wait_all(children);
+    }
+
+    let id = ctx.jobs.add(pgid, pids.clone(), command_text.to_owned());
+    println!("[{id}] {}", pids[0]);
+
+    // A background job's status is zero: the shell did not wait, so it has
+    // nothing else to report. `$?` after `cmd &` is about starting the job.
+    0
+}
+
+/// Wait for a foreground job, handing it the terminal first.
+fn foreground(children: Vec<Spawned>, pgid: Pid, ctx: &mut Context<'_>, command_text: &str) -> i32 {
+    if ctx.job_control {
+        // Giving the job the terminal is what makes it the foreground job:
+        // Ctrl-C and Ctrl-Z will now reach it, and reads from the terminal will
+        // succeed for it instead of stopping it with SIGTTIN.
+        let _ = rsh_process::give_terminal_to(pgid);
+    }
+
+    let mut status = 0;
+    let mut ended = None;
+    let mut stopped = false;
+    let mut live: Vec<Child> = Vec::new();
+
+    for spawned in children {
+        match spawned {
+            Spawned::Failed(code) => status = code,
+            Spawned::Running(child) => {
+                if stopped {
+                    // The whole group was suspended together, so there is
+                    // nothing to wait for. Keep the child to record in the job.
+                    live.push(child);
+                    continue;
+                }
+
+                match await_stage(&child, ctx.job_control, command_text) {
+                    Ok(Some(finished)) => {
+                        status = finished.code();
+                        ended = Some(finished);
+                    }
+                    Ok(None) => {
+                        stopped = true;
+                        live.push(child);
+                    }
+                    Err(error) => {
+                        eprintln!("rsh: {error}");
+                        status = rsh_process::EXIT_NOT_EXECUTABLE;
+                    }
+                }
+            }
+        }
+    }
+
+    if ctx.job_control {
+        // Take the terminal back before printing anything. The shell is not the
+        // foreground group at this moment, so writing to the terminal could
+        // earn it a SIGTTOU — which it ignores, but the ordering is the point.
+        let _ = rsh_process::give_terminal_to(ctx.shell_pgid);
+    }
+
+    if stopped {
+        let pids: Vec<Pid> = live.iter().map(Child::pid).collect();
+        let id = ctx.jobs.add(pgid, pids, command_text.to_owned());
+        if let Some(job) = ctx.jobs.find_mut(rsh_job::JobSpec::Id(id)) {
+            job.stopped();
+            job.mark_reported();
+        }
+        // The leading newline moves past the `^Z` the terminal echoed where
+        // the cursor was. Without it the notice runs into the keystroke.
+        println!("\n[{id}]+  Stopped                 {command_text}");
+
+        // 128 + SIGTSTP, the status a shell reports for a suspended command.
+        return 148;
+    }
+
+    // The terminal echoed `^C` where the cursor was and the command died
+    // mid-line. The shell no longer receives the signal itself — the job has
+    // its own process group now — so the newline has to come from noticing how
+    // the job ended rather than from a flag the handler set.
+    if matches!(
+        ended,
+        Some(ExitStatus::Signaled(Signal::SIGINT | Signal::SIGQUIT))
+    ) {
+        eprintln!();
+    }
+
+    status
+}
+
+/// Wait for one stage, returning `None` if it suspended.
+///
+/// Without job control a stop has nowhere to go. There is no job table entry a
+/// user could name, no terminal to hand back, and nothing able to resume the
+/// process — so the shell continues it and says so, which is what it did before
+/// job control existed. Returning `None` there would leave a stopped process
+/// holding its side of the pipeline open forever.
+fn await_stage(
+    child: &Child,
+    job_control: bool,
+    command_text: &str,
+) -> Result<Option<ExitStatus>, rsh_process::SpawnError> {
+    loop {
+        match child.wait_or_stop()? {
+            Waited::Finished(status) => return Ok(Some(status)),
+            Waited::Stopped(_) if job_control => return Ok(None),
+            Waited::Stopped(signal) => {
+                eprintln!(
+                    "rsh: {command_text}: stopped by {signal}; continuing (no terminal for job control)"
+                );
+                child.resume()?;
+            }
+        }
+    }
 }
 
 /// What became of one stage: a running child, or a failure to report.
@@ -149,12 +287,17 @@ enum Spawned {
     Failed(i32),
 }
 
+impl Spawned {
+    fn pid(&self) -> Option<Pid> {
+        match self {
+            Self::Running(child) => Some(child.pid()),
+            Self::Failed(_) => None,
+        }
+    }
+}
+
 /// Start one stage, turning a failure into a status rather than an error.
-///
-/// A pipeline is already running by the time this can fail, so there is no
-/// unwinding to do: the stage reports the status a shell would have reported,
-/// and its neighbours see the end-of-input or empty output that follows.
-fn spawn(stage: Stage) -> Spawned {
+fn spawn(stage: Stage, pgid: Option<Pid>, job_control: bool) -> Spawned {
     let Some(program) = stage.argv.first() else {
         // Every word expanded away — `$UNSET | cat`. POSIX gives a command with
         // no name status zero, and its side of the pipe simply closes.
@@ -173,7 +316,14 @@ fn spawn(stage: Stage) -> Spawned {
     };
 
     let prepared = match rsh_process::Command::new(&path, &stage.argv) {
-        Ok(prepared) => prepared.redirections(stage.redirections),
+        Ok(prepared) => {
+            let prepared = prepared.redirections(stage.redirections);
+            if job_control {
+                prepared.process_group(pgid)
+            } else {
+                prepared
+            }
+        }
         Err(error) => {
             eprintln!("rsh: {error}");
             return Spawned::Failed(rsh_process::EXIT_NOT_EXECUTABLE);
@@ -195,9 +345,7 @@ fn spawn(stage: Stage) -> Spawned {
 /// command whose status it needed would accumulate zombies for the rest.
 ///
 /// The status is the *last* stage's, which is POSIX and is why `grep -q x |
-/// true` succeeds no matter what `grep` found. Reporting the first failure
-/// instead would be more useful and less compatible; `bash` splits the
-/// difference with `pipefail`, which is a later problem.
+/// true` succeeds no matter what `grep` found.
 fn wait_all(children: Vec<Spawned>) -> i32 {
     let mut status = 0;
 
