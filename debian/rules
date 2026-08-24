@@ -1,13 +1,20 @@
 #!/usr/bin/make -f
 
+# Defines DEB_HOST_RUST_TYPE, which is the directory cargo puts the binary in.
+include /usr/share/rustc/architecture.mk
+
 %:
 	dh $@ --buildsystem cargo
 
 # The library crates this binary is built from live in the same source tree and
 # are not separately useful, so nothing is installed for them.
-# `cargo install` takes --bin but not -p; that one is cargo build's.
+# Installed by hand rather than through `cargo install`, which insists on a
+# package manifest and finds a virtual one: the root of this repository is a
+# workspace, and the shell is a member of it. dh_auto_build has already
+# produced the binary, so this just puts it where the package wants it.
 override_dh_auto_install:
-	dh_auto_install -- --bin whelk
+	install -D -m 755 target/$(DEB_HOST_RUST_TYPE)/release/whelk \
+		debian/whelk/usr/bin/whelk
 
 # Only the shell. The workspace also holds benchmarks and the standalone
 # experiments, whose dependencies are not build dependencies of this package
