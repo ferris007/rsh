@@ -9,7 +9,7 @@
   <a href="https://github.com/ferris007/rsh/actions/workflows/ci.yml"><img src="https://github.com/ferris007/rsh/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <img src="https://img.shields.io/badge/rust-1.85%2B-orange.svg" alt="Rust 1.85+">
   <img src="https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg" alt="MIT OR Apache-2.0">
-  <img src="https://img.shields.io/badge/tests-334-brightgreen.svg" alt="334 tests">
+  <img src="https://img.shields.io/badge/tests-332-brightgreen.svg" alt="332 tests">
   <img src="https://img.shields.io/badge/platform-Linux%20%7C%20macOS%20%7C%20BSD-lightgrey.svg" alt="Linux, macOS, BSD">
 </p>
 
