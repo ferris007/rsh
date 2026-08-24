@@ -41,7 +41,7 @@ fn main() -> ExitCode {
     // history, and completion; a pipe gets bytes split on newlines. The rest of
     // the loop cannot tell which it is talking to.
     let mut reader = Reader::new();
-    let mut editing = interactive.then(Interactive::new);
+    let mut editing = interactive.then(|| Interactive::new(shell.signal_fd()));
 
     // Run the user's configuration, if there is any. Before the first prompt,
     // and only when interactive: a script that sourced the user's rc file would
@@ -65,10 +65,11 @@ fn main() -> ExitCode {
         // than the instant it happens: a notification that arrived mid-keystroke
         // would write over whatever the user was typing.
         shell.report_jobs();
-        shell.refresh_window_size();
+        let resized = shell.take_resize();
+        shell.refresh_window_size(resized);
 
         let read = match &mut editing {
-            Some(editor) => editor.read_line(PROMPT),
+            Some(editor) => editor.read_line(PROMPT, &mut shell),
             None => reader.next_line(),
         };
 

@@ -17,8 +17,8 @@ pub use path::{resolve, suggest, ResolveError};
 pub use pipe::Pipe;
 pub use redirect::{Redirections, Restore};
 pub use signal::{
-    install as install_signal_handlers, shutdown_requested, take_child_event, take_interrupt,
-    take_resize,
+    drain_notifications, install as install_signal_handlers, notify_fd, shutdown_requested,
+    take_child_event, take_interrupt, take_resize,
 };
 pub use status::{
     collect_child_events, collect_child_events_blocking, ChildEvent, ExitStatus,

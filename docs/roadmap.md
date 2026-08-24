@@ -281,14 +281,33 @@ short of.
                  scheduler
 ```
 
-- [ ] `epoll` on Linux
-- [ ] `kqueue` on BSD/macOS
-- [ ] event notification
-- [ ] non-blocking I/O
-- [ ] child-process events
-- [ ] event-driven architecture
+- [x] `epoll` on Linux
+- [x] `kqueue` on BSD/macOS
+- [x] event notification
+- [x] non-blocking I/O — see the note
+- [ ] child-process events — see the note
+- [x] event-driven architecture
 
 Don't reach for Tokio here. Understand what it abstracts first.
+
+Notes: [`docs/events.md`](events.md), and [`experiments/epoll`](../experiments/epoll/),
+which reproduces the race that makes a signal flag insufficient — 800ms slept
+through with a flag alone, 0ms with a self-pipe.
+
+`rsh-event` is about two hundred lines and is a very small `mio`, which is the
+layer Tokio sits on. An async runtime is a scheduler above this line; below it
+is a poller saying which descriptors are ready.
+
+**Non-blocking I/O** is used only where the shell owns the descriptor outright.
+`O_NONBLOCK` belongs to the open file description, so setting it on standard
+input sets it for every child too — a `cat` that gets `EAGAIN` from a terminal
+is a bug the shell caused. Readiness plus a blocking read is equivalent and
+safe.
+
+**Child-process events** are left unchecked deliberately. `SIGCHLD` still
+arrives as a signal rather than as a descriptor; Linux's `pidfd` would fix that
+and has no portable equivalent. The executor also still blocks in `waitpid`,
+which is the larger remaining piece.
 
 ---
 

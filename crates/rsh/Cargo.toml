@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+rsh-event = { workspace = true }
 rsh-executor = { workspace = true }
 rsh-line = { workspace = true }
 rsh-terminal = { workspace = true }

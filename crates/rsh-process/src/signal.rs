@@ -39,7 +39,9 @@
 //!
 //! [async-signal-safe]: https://man7.org/linux/man-pages/man7/signal-safety.7.html
 
+use std::os::fd::{AsRawFd, OwnedFd, RawFd};
 use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::OnceLock;
 
 use nix::errno::Errno;
 use nix::libc::c_int;
@@ -53,6 +55,51 @@ static TERMINATING: AtomicI32 = AtomicI32::new(0);
 
 /// Set when the terminal changes size.
 static RESIZED: AtomicBool = AtomicBool::new(false);
+
+/// The write end of the self-pipe, as a plain descriptor.
+///
+/// Read by handlers, so it cannot be behind a lock — a handler that blocked on
+/// a mutex held by the interrupted thread would deadlock the process. An
+/// `AtomicI32` set once at startup is the whole synchronisation.
+static NOTIFY_WRITE: AtomicI32 = AtomicI32::new(-1);
+
+/// The pipe itself, kept alive for the life of the process.
+static NOTIFY: OnceLock<(OwnedFd, OwnedFd)> = OnceLock::new();
+
+/// Wake anything waiting on the self-pipe.
+///
+/// # The problem this solves
+///
+/// A handler that only sets a flag is not enough for an event loop. The signal
+/// can arrive *between* the check and the wait:
+///
+/// ```text
+///     if flag.take() { ... }      ← flag is clear
+///                                 ← signal arrives, handler sets flag
+///     poller.wait(forever)        ← blocks, with the flag already set
+/// ```
+///
+/// Nothing is left to wake the loop, and the event is lost until something
+/// else happens to arrive. The window is small and it is real.
+///
+/// Writing a byte to a pipe closes it: a byte written before the wait begins is
+/// still in the pipe when it starts, so the poller returns immediately. This is
+/// the **self-pipe trick**, and it is what every portable event loop does with
+/// signals. See `experiments/epoll`, which reproduces the race deterministically.
+///
+/// `write` is async-signal-safe. A full pipe means a wakeup is already pending,
+/// so the failure is not merely tolerable — it means the job is already done.
+fn notify() {
+    let fd = NOTIFY_WRITE.load(Ordering::Relaxed);
+    if fd < 0 {
+        return;
+    }
+
+    // SAFETY: `write` is async-signal-safe. The descriptor is either -1, which
+    // is checked above, or the pipe created at startup and never closed. The
+    // buffer is a 'static byte string.
+    unsafe { nix::libc::write(fd, b"!".as_ptr().cast(), 1) };
+}
 
 /// Set when a child changes state — exits, is stopped, or is continued.
 ///
@@ -68,11 +115,13 @@ static CHILD_CHANGED: AtomicBool = AtomicBool::new(false);
 /// safely act.
 extern "C" fn on_interrupt(_signal: c_int) {
     INTERRUPTED.store(true, Ordering::Relaxed);
+    notify();
 }
 
 /// Record a request to shut down.
 extern "C" fn on_terminate(signal: c_int) {
     TERMINATING.store(signal, Ordering::Relaxed);
+    notify();
 }
 
 /// Record that the window changed size.
@@ -82,6 +131,7 @@ extern "C" fn on_terminate(signal: c_int) {
 /// next prompt, which is the only moment the answer is useful anyway.
 extern "C" fn on_resize(_signal: c_int) {
     RESIZED.store(true, Ordering::Relaxed);
+    notify();
 }
 
 /// Record that some child changed state.
@@ -92,6 +142,7 @@ extern "C" fn on_resize(_signal: c_int) {
 /// safe"; the looking happens in the main loop.
 extern "C" fn on_child(_signal: c_int) {
     CHILD_CHANGED.store(true, Ordering::Relaxed);
+    notify();
 }
 
 /// Install the shell's handlers.
@@ -101,6 +152,32 @@ extern "C" fn on_child(_signal: c_int) {
 /// happened; without it, the read fails with `EINTR`, which is the shell's cue
 /// to abandon the line and prompt again.
 pub fn install() -> Result<(), Errno> {
+    // The self-pipe first: a handler that fired before it existed would have
+    // nowhere to write, and the wakeup would be lost.
+    let (read, write) = nix::unistd::pipe()?;
+    for end in [&read, &write] {
+        // Close-on-exec, so children never inherit the shell's wakeup channel.
+        nix::fcntl::fcntl(
+            end,
+            nix::fcntl::FcntlArg::F_SETFD(nix::fcntl::FdFlag::FD_CLOEXEC),
+        )?;
+    }
+
+    // Non-blocking, so a handler firing faster than the loop drains cannot
+    // block inside a signal handler — which would be a deadlock with no way
+    // out.
+    nix::fcntl::fcntl(
+        &write,
+        nix::fcntl::FcntlArg::F_SETFL(nix::fcntl::OFlag::O_NONBLOCK),
+    )?;
+    nix::fcntl::fcntl(
+        &read,
+        nix::fcntl::FcntlArg::F_SETFL(nix::fcntl::OFlag::O_NONBLOCK),
+    )?;
+
+    NOTIFY_WRITE.store(write.as_raw_fd(), Ordering::Relaxed);
+    let _ = NOTIFY.set((read, write));
+
     let interrupt = SigAction::new(
         SigHandler::Handler(on_interrupt),
         SaFlags::empty(),
@@ -166,6 +243,36 @@ pub fn install() -> Result<(), Errno> {
     Ok(())
 }
 
+/// The descriptor to watch for "a signal arrived".
+///
+/// Returns `None` before [`install`] has run. The caller registers this with a
+/// poller and calls [`drain_notifications`] when it reports readable; *which*
+/// signal arrived is then read from the flags below.
+pub fn notify_fd() -> Option<RawFd> {
+    NOTIFY.get().map(|(read, _)| read.as_raw_fd())
+}
+
+/// Throw away the bytes the handlers wrote.
+///
+/// The bytes carry no information — a handler cannot safely encode which signal
+/// it was, and does not need to, because the flags already say. Their only job
+/// is to make the pipe readable so the poller returns.
+pub fn drain_notifications() {
+    let Some(fd) = notify_fd() else {
+        return;
+    };
+
+    let mut scratch = [0_u8; 64];
+    loop {
+        // SAFETY: reading into a stack buffer from a descriptor owned by the
+        // static above, which is never closed.
+        let count = unsafe { nix::libc::read(fd, scratch.as_mut_ptr().cast(), scratch.len()) };
+        if count < scratch.len() as isize {
+            break;
+        }
+    }
+}
+
 /// Whether the terminal has been resized since this was last called.
 pub fn take_resize() -> bool {
     RESIZED.swap(false, Ordering::Relaxed)
@@ -223,5 +330,25 @@ mod tests {
         // Reaching this line at all is the other half of the assertion — the
         // default action for SIGINT would have terminated the test runner.
         assert_eq!(shutdown_requested(), None);
+
+        // The flag alone is not enough for an event loop: a signal arriving
+        // between the check and the wait leaves the loop blocked with nothing
+        // to wake it. A byte in a pipe survives that gap.
+        let fd = notify_fd().expect("the self-pipe should exist after install");
+        drain_notifications();
+
+        let mut scratch = [0_u8; 8];
+        // SAFETY: reading into a stack buffer from the static self-pipe.
+        let before = unsafe { nix::libc::read(fd, scratch.as_mut_ptr().cast(), scratch.len()) };
+        assert!(before <= 0, "the pipe should be empty, read {before} bytes");
+
+        raise(Signal::SIGINT).expect("failed to signal self");
+
+        // SAFETY: as above.
+        let after = unsafe { nix::libc::read(fd, scratch.as_mut_ptr().cast(), scratch.len()) };
+        assert!(after > 0, "the handler should have written a wakeup byte");
+
+        // The byte carries no meaning; the flag is where the answer is.
+        assert!(take_interrupt());
     }
 }
