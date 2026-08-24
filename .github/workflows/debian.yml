@@ -67,9 +67,15 @@ jobs:
           whelk --version
           echo 'echo built-by-debian-tooling' | whelk
 
+      - name: Gather the artifacts
+        run: |
+          set -eux
+          # dpkg-buildpackage writes beside the source tree, and
+          # upload-artifact refuses a path containing '..'.
+          mkdir -p dist
+          cp ../*.deb ../*.changes dist/
+
       - uses: actions/upload-artifact@v4
         with:
           name: debian-package
-          path: |
-            ../*.deb
-            ../*.changes
+          path: dist/

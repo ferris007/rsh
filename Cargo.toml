@@ -22,7 +22,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.2.0"
+version = "0.2.1"
 edition = "2021"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -38,14 +38,14 @@ authors = ["whelk contributors"]
 #
 # These track the workspace version and have to be raised with it.
 [workspace.dependencies]
-whelk-parser = { path = "crates/whelk-parser", version = "0.2.0" }
-whelk-process = { path = "crates/whelk-process", version = "0.2.0" }
-whelk-job = { path = "crates/whelk-job", version = "0.2.0" }
-whelk-terminal = { path = "crates/whelk-terminal", version = "0.2.0" }
-whelk-line = { path = "crates/whelk-line", version = "0.2.0" }
-whelk-event = { path = "crates/whelk-event", version = "0.2.0" }
-whelk-trace = { path = "crates/whelk-trace", version = "0.2.0" }
-whelk-executor = { path = "crates/whelk-executor", version = "0.2.0" }
+whelk-parser = { path = "crates/whelk-parser", version = "0.2.1" }
+whelk-process = { path = "crates/whelk-process", version = "0.2.1" }
+whelk-job = { path = "crates/whelk-job", version = "0.2.1" }
+whelk-terminal = { path = "crates/whelk-terminal", version = "0.2.1" }
+whelk-line = { path = "crates/whelk-line", version = "0.2.1" }
+whelk-event = { path = "crates/whelk-event", version = "0.2.1" }
+whelk-trace = { path = "crates/whelk-trace", version = "0.2.1" }
+whelk-executor = { path = "crates/whelk-executor", version = "0.2.1" }
 
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
 # `unsafe` in this project is limited to the places where the *semantics* are
