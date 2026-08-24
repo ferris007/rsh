@@ -19,7 +19,8 @@ use std::path::Path;
 
 use nix::errno::Errno;
 use nix::libc;
-use nix::sys::wait::waitpid;
+use nix::sys::signal::{kill, Signal};
+use nix::sys::wait::{waitpid, WaitPidFlag, WaitStatus};
 use nix::unistd::{fork, ForkResult, Pid};
 
 use crate::redirect::Redirections;
@@ -238,17 +239,41 @@ impl Child {
     /// shell signals a pid that now belongs to something else — a compile
     /// error rather than a race.
     pub fn wait(self) -> Result<ExitStatus, SpawnError> {
+        self.wait_with(|_| {})
+    }
+
+    /// Block until the child terminates, reporting any stop along the way.
+    ///
+    /// `WUNTRACED` is what makes a stopped child visible at all. Without it,
+    /// `waitpid` simply does not return for a process that has been suspended —
+    /// so Ctrl-Z on a foreground command leaves the shell blocked forever on a
+    /// child that will never finish, with no prompt and no way back.
+    ///
+    /// Having seen the stop, the shell has exactly two options: keep the job
+    /// somewhere and hand the terminal back to itself, or continue the child
+    /// and carry on waiting. The first is job control and needs a job table,
+    /// process groups, and terminal ownership — Phase 6 and Phase 7. Until
+    /// then this does the second, because the alternative is stranding a
+    /// stopped process with nothing able to resume it.
+    pub fn wait_with<F>(self, mut on_stopped: F) -> Result<ExitStatus, SpawnError>
+    where
+        F: FnMut(Signal),
+    {
         loop {
-            match waitpid(self.pid, None) {
+            match waitpid(self.pid, Some(WaitPidFlag::WUNTRACED)) {
+                Ok(WaitStatus::Stopped(_, signal)) => {
+                    on_stopped(signal);
+                    kill(self.pid, Signal::SIGCONT).map_err(SpawnError::Wait)?;
+                }
                 Ok(status) => match ExitStatus::from_wait(status) {
                     Some(status) => return Ok(status),
-                    // Not a termination (a Phase 6 job-control event). The
-                    // child is still alive, so keep waiting for its real end.
+                    // Some other non-terminal event. The child is still alive,
+                    // so keep waiting for its real end.
                     None => continue,
                 },
-                // A signal arrived while we were blocked. That is expected in
-                // an interactive shell — it is what SIGCHLD and, later,
-                // SIGWINCH look like from here — and it is not an error.
+                // A signal arrived while we were blocked. In an interactive
+                // shell that is routine — it is what Ctrl-C looks like from
+                // here — and it is not an error.
                 Err(Errno::EINTR) => continue,
                 Err(errno) => return Err(SpawnError::Wait(errno)),
             }

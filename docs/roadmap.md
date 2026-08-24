@@ -151,14 +151,29 @@ foreground process group
 SIGINT
 ```
 
-- [ ] `SIGINT`
-- [ ] `SIGTERM`
-- [ ] `SIGCHLD`
-- [ ] `SIGTSTP`
-- [ ] `SIGCONT`
-- [ ] Child-process reaping
-- [ ] Signal-safe communication with the shell
-- [ ] Graceful shutdown
+- [x] `SIGINT`
+- [x] `SIGTERM`
+- [ ] `SIGCHLD` — see below
+- [x] `SIGTSTP`
+- [x] `SIGCONT`
+- [x] Child-process reaping
+- [x] Signal-safe communication with the shell
+- [x] Graceful shutdown
+
+Notes: [`docs/signals.md`](signals.md), and
+[`experiments/signals`](../experiments/signals/), which answers the question
+this phase is really about — a group-directed signal goes to a group, and that
+one fact shapes everything job control does later.
+
+`SIGTSTP` is *handled*, not honoured: the shell notices the stop and continues
+the child, because there is nowhere to put a suspended job until there is a job
+table. Before this phase, `waitpid` never returned for a stopped child and
+Ctrl-Z wedged the shell permanently.
+
+`SIGCHLD` is deliberately not implemented. The shell waits for its children
+synchronously, so an asynchronous death notification has nothing to tell it. It
+earns its place in Phase 6, when a job can outlive the command that started it.
+Installing a handler now would be machinery with no purpose.
 
 ---
 
