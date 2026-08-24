@@ -112,10 +112,10 @@ fn spawn_reader(gate: &std::os::fd::OwnedFd) -> Pid {
 
             // Wait at the gate. Reading a pipe is not reading the terminal, so
             // this cannot itself earn a SIGTTIN.
-            //
+            let mut byte = [0_u8; 1];
+
             // SAFETY: `read` is async-signal-safe; the buffer is on this
             // process's stack and the descriptor was inherited across the fork.
-            let mut byte = [0_u8; 1];
             unsafe { libc::read(gate.as_raw_fd(), byte.as_mut_ptr().cast(), 1) };
 
             // SAFETY: `argv` is NULL-terminated and alive in this address-space

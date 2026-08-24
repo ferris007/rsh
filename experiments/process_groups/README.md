@@ -14,6 +14,23 @@ $
 
 It stops. Nobody stopped it, and it never read a byte.
 
+## A race the demonstration had to close first
+
+The children must not touch the terminal until the parent has finished deciding
+who owns it. A child that reaches `read` before `tcsetpgrp` runs is not in the
+foreground group *yet* — so it is stopped by `SIGTTIN`, including the one about
+to be given the terminal.
+
+This program lost that race on a CI runner and reported both children as
+stopped, which looks like a demonstration of something it is not. The children
+now wait at a pipe until the parent lets them through; reading a pipe is not
+reading the terminal, and cannot earn a `SIGTTIN`.
+
+A real shell has the same problem and solves it the same way round. It is
+exactly why `fg` hands over the terminal *before* sending `SIGCONT`: a job
+resumed first would read a terminal it does not own yet, stop again, and the
+resume would appear to do nothing.
+
 ## The setup
 
 The program forks two children, each leading its own process group, and both
