@@ -71,6 +71,13 @@ pub struct Context<'a> {
     pub job_control: bool,
     /// The shell's own process group, to take the terminal back.
     pub shell_pgid: Pid,
+    /// The terminal settings the shell itself needs, captured at startup.
+    ///
+    /// A foreground job may leave the terminal in any state at all — raw mode,
+    /// no echo, an alternate screen. The shell puts these back before printing
+    /// a prompt, so a job that crashed mid-`vim` does not leave the user typing
+    /// blind.
+    pub shell_modes: Option<&'a rsh_terminal::Modes>,
 }
 
 /// What a prepared stage needs before anything is forked.
@@ -182,7 +189,7 @@ fn foreground(children: Vec<Spawned>, pgid: Pid, ctx: &mut Context<'_>, command_
         // Giving the job the terminal is what makes it the foreground job:
         // Ctrl-C and Ctrl-Z will now reach it, and reads from the terminal will
         // succeed for it instead of stopping it with SIGTTIN.
-        let _ = rsh_process::give_terminal_to(pgid);
+        let _ = rsh_terminal::give_to(pgid);
     }
 
     let mut status = 0;
@@ -219,11 +226,24 @@ fn foreground(children: Vec<Spawned>, pgid: Pid, ctx: &mut Context<'_>, command_
         }
     }
 
+    // Whatever the job did to the terminal is still in effect. Snapshot it
+    // before undoing it, so that resuming the job can put it back — and then
+    // restore the shell's own, so the prompt behaves.
+    let job_modes = if ctx.job_control && stopped {
+        rsh_terminal::snapshot()
+    } else {
+        None
+    };
+
     if ctx.job_control {
         // Take the terminal back before printing anything. The shell is not the
         // foreground group at this moment, so writing to the terminal could
         // earn it a SIGTTOU — which it ignores, but the ordering is the point.
-        let _ = rsh_process::give_terminal_to(ctx.shell_pgid);
+        let _ = rsh_terminal::give_to(ctx.shell_pgid);
+
+        if let Some(modes) = ctx.shell_modes {
+            let _ = rsh_terminal::restore(modes);
+        }
     }
 
     if stopped {
@@ -232,6 +252,7 @@ fn foreground(children: Vec<Spawned>, pgid: Pid, ctx: &mut Context<'_>, command_
         if let Some(job) = ctx.jobs.find_mut(rsh_job::JobSpec::Id(id)) {
             job.stopped();
             job.mark_reported();
+            job.remember_modes(job_modes);
         }
         // The leading newline moves past the `^Z` the terminal echoed where
         // the cursor was. Without it the notice runs into the keystroke.

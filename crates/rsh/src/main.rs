@@ -50,6 +50,7 @@ fn main() -> ExitCode {
         // than the instant it happens: a notification that arrived mid-keystroke
         // would write over whatever the user was typing.
         shell.report_jobs();
+        shell.refresh_window_size();
 
         if interactive {
             prompt();
@@ -116,6 +117,10 @@ fn main() -> ExitCode {
             }
         }
     };
+
+    // Whatever the last job did to the terminal, undo it. The shell is the only
+    // thing left that knows what the settings were before.
+    shell.restore_terminal();
 
     // Statuses are a single byte to the operating system: `exit 300` becomes 44
     // no matter what any shell does, so truncate here rather than pretend

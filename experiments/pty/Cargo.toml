@@ -1,6 +1,7 @@
 [package]
-name = "rsh-job"
-description = "Job table and process-group bookkeeping for the rsh shell"
+name = "xp-pty"
+description = "Experiment: why a program's output changes when you pipe it"
+publish = false
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,10 +9,16 @@ license.workspace = true
 repository.workspace = true
 authors.workspace = true
 
+[[bin]]
+name = "xp-pty"
+path = "src/main.rs"
+
+[[bin]]
+name = "xp-pty-writer"
+path = "src/writer.rs"
+
 [dependencies]
 nix = { workspace = true }
-rsh-process = { workspace = true }
-rsh-terminal = { workspace = true }
 
 [lints]
 workspace = true

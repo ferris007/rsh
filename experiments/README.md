@@ -27,6 +27,7 @@ experiments/<name>/
 | [`pipes`](pipes/) | A Rust program ignores `SIGPIPE` before `main` runs. What happens to the programs it `exec`s? |
 | [`signals`](signals/) | You press Ctrl-C. Who actually gets the signal? |
 | [`process_groups`](process_groups/) | Two processes, same terminal, both blocked in `read`. What happens to the one that does not own it? |
+| [`pty`](pty/) | A program prints progress as it works. Pipe it and the progress stops appearing. Where did it go? |
 
 More arrive alongside the phases that need them; see
 [the roadmap](../docs/roadmap.md).

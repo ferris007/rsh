@@ -216,13 +216,23 @@ rsh
         └── interactive application (vim, top, ssh)
 ```
 
-- [ ] Raw terminal mode
-- [ ] Terminal state management
-- [ ] Terminal resize handling
-- [ ] TTY detection
-- [ ] PTY experiments
-- [ ] Interactive child processes
-- [ ] Terminal restoration after crashes
+- [x] Raw terminal mode
+- [x] Terminal state management
+- [x] Terminal resize handling
+- [x] TTY detection
+- [x] PTY experiments
+- [x] Interactive child processes
+- [x] Terminal restoration after crashes
+
+Notes: [`docs/terminal.md`](terminal.md), and [`experiments/pty`](../experiments/pty/),
+which answers why a program's output stops appearing the moment you pipe it.
+
+Raw mode is provided and tested but not yet used by the REPL — line editing is
+Phase 8. An untested capability adopted a phase later is a capability debugged a
+phase later.
+
+Not implemented: `terminfo`, the alternate screen, and allocating a pty per job
+(which is what `script` and `tmux` do, and is a different program).
 
 ---
 

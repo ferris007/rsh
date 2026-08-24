@@ -13,6 +13,7 @@ nix = { workspace = true }
 rsh-job = { workspace = true }
 rsh-parser = { workspace = true }
 rsh-process = { workspace = true }
+rsh-terminal = { workspace = true }
 
 [lints]
 workspace = true
