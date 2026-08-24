@@ -4,7 +4,6 @@ Priority: optional
 Maintainer: ferris007 <woremixituki@gmail.com>
 Build-Depends:
  debhelper-compat (= 13),
- dh-cargo (>= 25),
  cargo:native,
  rustc:native (>= 1.85),
  librust-nix-0.30+event-dev,

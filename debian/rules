@@ -1,20 +1,37 @@
 #!/usr/bin/make -f
 
-%:
-	dh $@ --buildsystem cargo
-
-# The root of this repository is a workspace -- a virtual manifest, which
-# `cargo install` refuses ("found a virtual manifest instead of a package
-# manifest"). Pointing it at the shell's own directory gives it a package to
-# install; the eight libraries it is built from are siblings in the same source
-# tree and resolve by path, needing nothing from the network.
+# Not --buildsystem cargo, and that is deliberate.
 #
-# This is also what keeps the build to the shell alone. The benchmarks and the
-# eight standalone experiments are other members of the same workspace, and
-# nothing here asks for them -- which matters because the benchmarks want
-# criterion, and a buildd has no way to fetch it.
+# dh-cargo is built for packaging a single crate unpacked from a crates.io
+# tarball: it computes `cargo install --path` from the source root and cannot
+# be told otherwise, so on a workspace it finds a virtual manifest and refuses.
+# This repository is a workspace of nine crates, one of which is the shell.
+#
+# So the two steps are written out. The source replacement below is what
+# dh-cargo would have configured: it points cargo at the crates Debian has
+# packaged, so the build takes nothing from the network.
+%:
+	dh $@
+
+export CARGO_HOME = $(CURDIR)/debian/cargo-home
+
+override_dh_auto_configure:
+	mkdir -p $(CARGO_HOME)
+	printf '[source.crates-io]\nreplace-with = "debian"\n\n[source.debian]\ndirectory = "/usr/share/cargo/registry"\n' \
+		> $(CARGO_HOME)/config.toml
+	# Resolved against what Debian ships rather than against what upstream
+	# happened to have. The versions in the lock file are not the versions in
+	# the archive, and the archive is what this build can reach.
+	rm -f Cargo.lock
+
+override_dh_auto_build:
+	cargo build --release --offline --locked=false -p whelk
+
 override_dh_auto_install:
-	dh_auto_install -D crates/whelk -- --bin whelk
+	install -D -m 755 target/release/whelk debian/whelk/usr/bin/whelk
+
+override_dh_auto_clean:
+	rm -rf target debian/cargo-home Cargo.lock
 
 # The test suite drives a real shell over a pseudoterminal and spawns
 # processes. It passes on a normal machine and is not something to make a
