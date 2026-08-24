@@ -16,37 +16,33 @@ Unix actually works**.
 
 ## Status
 
-Phase 7 — terminal management. The process model is complete: `vim`, `top`, and
-`less` work inside `rsh`, and a job that wrecks the terminal cannot leave it
-that way.
+Phase 8 — the interactive layer. History that persists, arrow-key navigation,
+Tab completion, and suggestions when a command is mistyped.
 
 ```console
 $ cargo run -p rsh
-rsh> stty -echo          # a job turns off echoing and exits
-rsh> echo still visible  # ...and the shell has already put it back
-still visible
+rsh> job<TAB>                    # completes to `jobs`
+rsh> echo hello
+hello
+rsh> <UP>                        # recalls `echo hello`
+rsh> grepp pattern
+rsh: grepp: command not found
+      did you mean `grep`?
 rsh> sleep 30 &
 [1] 4242
-rsh> sleep 30
-^Z
-[2]+  Stopped                 sleep 30
-rsh> jobs
-[1]-  Running                 sleep 30
-[2]+  Stopped                 sleep 30
-rsh> echo terminal is ${COLUMNS}x${LINES}
-terminal is 120x30
-rsh> exit
-rsh: there are stopped jobs
+rsh> stty -echo                  # a job wrecks the terminal
+rsh> echo still fine             # ...and the shell has already fixed it
+still fine
 rsh> exit
 ```
 
-`dash` fails that first example: after `stty -echo` it leaves the terminal
-silent and you type blind. Terminal state outlives the process that changed it,
-and the shell is the only thing still running that knows what it was before.
+Up on a half-typed line searches for commands starting with it, so typing
+`git ` and pressing Up finds the last `git` command rather than the last
+command.
 
-The interactive layer, the event-driven execution model, and the benchmark suite
-are still ahead. Syntax the shell cannot run yet is parsed, refused by name, and
-pointed at — never silently treated as an argument.
+The event-driven execution model and the benchmark suite are still ahead.
+Syntax the shell cannot run yet is parsed, refused by name, and pointed at —
+never silently treated as an argument.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 
@@ -82,6 +78,7 @@ crates/rsh-parser     text → AST; never touches the operating system
 crates/rsh-executor   expansion, builtins, dispatch, shell state
 crates/rsh-job        the job table and process-group bookkeeping
 crates/rsh-terminal   terminal modes, size, and ownership
+crates/rsh-line       line editing, history, and completion
 crates/rsh-process    fork / exec / wait, PATH resolution — all the `unsafe`
 docs/                 architecture and systems notes
 experiments/          standalone programs, each answering one systems question

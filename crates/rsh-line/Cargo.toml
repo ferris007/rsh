@@ -1,0 +1,15 @@
+[package]
+name = "rsh-line"
+description = "Line editing, history, and completion for the rsh shell"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+rsh-terminal = { workspace = true }
+
+[lints]
+workspace = true

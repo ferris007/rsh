@@ -16,6 +16,9 @@ use std::mem::ManuallyDrop;
 use std::os::fd::FromRawFd;
 
 /// What a read produced.
+///
+/// Shared with the interactive reader in [`crate::interactive`], so the REPL
+/// handles a line the same way whether it was typed or piped in.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Input {
     /// A line, without its trailing newline.

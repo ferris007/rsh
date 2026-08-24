@@ -329,6 +329,13 @@ fn spawn(stage: Stage, pgid: Option<Pid>, job_control: bool) -> Spawned {
         Ok(path) => path,
         Err(error) => {
             eprintln!("rsh: {error}");
+            if let rsh_process::ResolveError::NotFound { .. } = &error {
+                if let Some(closest) =
+                    rsh_process::suggest(program, std::env::var_os("PATH").as_deref())
+                {
+                    eprintln!("      did you mean `{closest}`?");
+                }
+            }
             return Spawned::Failed(match error {
                 rsh_process::ResolveError::NotFound { .. } => rsh_process::EXIT_NOT_FOUND,
                 rsh_process::ResolveError::NotExecutable { .. } => rsh_process::EXIT_NOT_EXECUTABLE,

@@ -44,6 +44,8 @@ version = "0.1.0"
 dependencies = [
  "nix",
  "rsh-executor",
+ "rsh-line",
+ "rsh-terminal",
 ]
 
 [[package]]
@@ -63,6 +65,13 @@ version = "0.1.0"
 dependencies = [
  "nix",
  "rsh-process",
+ "rsh-terminal",
+]
+
+[[package]]
+name = "rsh-line"
+version = "0.1.0"
+dependencies = [
  "rsh-terminal",
 ]
 

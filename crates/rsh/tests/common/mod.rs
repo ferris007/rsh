@@ -34,6 +34,14 @@ pub struct Terminal {
 impl Terminal {
     /// Start `rsh` with a pseudoterminal as its standard input and output.
     pub fn open() -> Self {
+        Self::open_with_env(&[])
+    }
+
+    /// Start `rsh` with extra environment variables.
+    ///
+    /// Used to point `HOME` at a scratch directory, so tests of history and
+    /// configuration cannot read or write the real one.
+    pub fn open_with_env(vars: &[(&str, &str)]) -> Self {
         // SAFETY: `forkpty` forks. The child branch below does nothing but
         // `execv` on a path built before the call, which is the same discipline
         // the shell itself follows.
@@ -41,6 +49,10 @@ impl Terminal {
 
         match result {
             ForkptyResult::Child => {
+                for (name, value) in vars {
+                    std::env::set_var(name, value);
+                }
+
                 let program = std::ffi::CString::new(RSH).expect("no NUL in a path");
                 let argv = [program.as_ptr(), std::ptr::null()];
 
