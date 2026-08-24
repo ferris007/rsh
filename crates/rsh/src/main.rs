@@ -5,14 +5,17 @@
 //! table lives in `rsh-process`; everything that decides what a line means
 //! lives in `rsh-parser` and `rsh-executor`.
 
+mod complete;
 mod input;
+mod interactive;
 
-use std::io::{self, IsTerminal, Write};
+use std::io::{self, IsTerminal};
 use std::process::ExitCode;
 
 use rsh_executor::{Outcome, Shell};
 
 use crate::input::{Input, Reader};
+use crate::interactive::Interactive;
 
 /// The prompt. Phase 8 makes this configurable; for now it is a constant so
 /// that nothing about the prompt can affect what a command does.
@@ -34,7 +37,19 @@ fn main() -> ExitCode {
     // pipe should print no prompts, but it is still the same shell.
     let interactive = io::stdin().is_terminal();
 
+    // Two ways to read a line, chosen once. A terminal gets raw mode, editing,
+    // history, and completion; a pipe gets bytes split on newlines. The rest of
+    // the loop cannot tell which it is talking to.
     let mut reader = Reader::new();
+    let mut editing = interactive.then(Interactive::new);
+
+    // Run the user's configuration, if there is any. Before the first prompt,
+    // and only when interactive: a script that sourced the user's rc file would
+    // behave differently depending on whose machine it ran on, which is exactly
+    // what a script must not do.
+    if interactive {
+        run_config(&mut shell);
+    }
 
     let status = loop {
         // Checked before blocking on input, so a shell told to stop does not
@@ -52,11 +67,12 @@ fn main() -> ExitCode {
         shell.report_jobs();
         shell.refresh_window_size();
 
-        if interactive {
-            prompt();
-        }
+        let read = match &mut editing {
+            Some(editor) => editor.read_line(PROMPT),
+            None => reader.next_line(),
+        };
 
-        match reader.next_line() {
+        match read {
             // End of input. Ctrl-D at a prompt means "no more commands", not
             // "something went wrong", so the shell leaves with the status of
             // the last command it ran — the same status `exit` would use.
@@ -118,6 +134,10 @@ fn main() -> ExitCode {
         }
     };
 
+    if let Some(editor) = &editing {
+        editor.save_history();
+    }
+
     // Whatever the last job did to the terminal, undo it. The shell is the only
     // thing left that knows what the settings were before.
     shell.restore_terminal();
@@ -129,16 +149,32 @@ fn main() -> ExitCode {
     ExitCode::from((status & 0xff) as u8)
 }
 
-/// Write the prompt.
+/// The file the shell reads at startup.
+const CONFIG_FILE: &str = ".rshrc";
+
+/// Run each line of the user's configuration file.
 ///
-/// It goes to stderr, not stdout. That is what lets `rsh > out.txt` stay usable
-/// interactively: the prompt reaches the terminal while command output goes to
-/// the file. Stdout is the command's channel, and the shell should not be
-/// writing to it.
-fn prompt() {
-    let mut stderr = io::stderr();
-    let _ = write!(stderr, "{PROMPT}");
-    // stderr is unbuffered, but flushing states the requirement rather than
-    // relying on it: the prompt has to be visible before the read blocks.
-    let _ = stderr.flush();
+/// Every line goes through the same `run_line` a typed command does — there is
+/// no separate configuration language, and no separate parser to disagree with
+/// the real one. A line that fails reports itself and the rest still run, which
+/// is what a user wants from a file they cannot see the effects of.
+fn run_config(shell: &mut Shell) {
+    let Some(home) = std::env::var_os("HOME") else {
+        return;
+    };
+
+    let path = std::path::PathBuf::from(home).join(CONFIG_FILE);
+    let Ok(contents) = std::fs::read_to_string(&path) else {
+        // No configuration file is the normal state of a new shell.
+        return;
+    };
+
+    for line in contents.lines() {
+        // `exit` in a configuration file is honoured: it is a strange thing to
+        // write, but refusing to do what it says would be stranger.
+        if let Outcome::Exit(status) = shell.run_line(line) {
+            shell.restore_terminal();
+            std::process::exit(status & 0xff);
+        }
+    }
 }

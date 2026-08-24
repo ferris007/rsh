@@ -241,14 +241,27 @@ Not implemented: `terminfo`, the alternate screen, and allocating a pty per job
 Only after the OS fundamentals work, and kept separate from the
 process-management core.
 
-- [ ] Command history
-- [ ] History persistence
-- [ ] Arrow-key navigation
-- [ ] Tab completion
-- [ ] Command suggestions
-- [ ] Environment completion
-- [ ] Better error messages
-- [ ] Config file
+- [x] Command history
+- [x] History persistence
+- [x] Arrow-key navigation
+- [x] Tab completion
+- [x] Command suggestions
+- [x] Environment completion
+- [x] Better error messages
+- [x] Config file
+
+Notes: [`docs/line-editing.md`](line-editing.md).
+
+Line editing means *giving up* what the terminal driver already does — backspace,
+Ctrl-U, Ctrl-C and the rest worked from Phase 1 without a line of code, and raw
+mode discards all of it. The shell is not adding history to an existing editor;
+it is replacing the terminal's editor with its own.
+
+Not implemented: reverse incremental search, a kill ring, multi-line editing
+(the parser has no continuation prompt either), syntax highlighting, and
+programmable completion. Lines longer than the terminal is wide are not redrawn
+correctly, which needs character-width handling this phase deliberately stops
+short of.
 
 ---
 

@@ -13,7 +13,7 @@ mod signal;
 mod status;
 
 pub use command::{Child, Command, SpawnError, Waited};
-pub use path::{resolve, ResolveError};
+pub use path::{resolve, suggest, ResolveError};
 pub use pipe::Pipe;
 pub use redirect::{Redirections, Restore};
 pub use signal::{

@@ -42,6 +42,11 @@ Two crates cut across the stack rather than sitting in it:
   question about the terminal in one crate turned out to matter more than the
   argument that ownership is really about process groups.
 
+A third, `rsh-line`, sits beside the REPL rather than under it: line editing,
+history, and completion. It performs no I/O at all — keys in, an action out —
+which is what lets a component that is almost entirely edge cases be tested
+without a terminal.
+
 They are separate because job control and terminal ownership are *not* a step in
 the pipeline from text to process. They are long-lived state that both the REPL
 and the executor consult — a job outlives the command that created it, which is

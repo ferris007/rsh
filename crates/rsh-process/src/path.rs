@@ -118,6 +118,92 @@ fn classify(path: &Path) -> Candidate {
     }
 }
 
+/// The closest thing on `PATH` to a name that was not found.
+///
+/// A shell that only says "command not found" is telling the user something
+/// they already know. The useful part is which of `sl`, `ls`, and `lz` they
+/// meant, and a typo is nearly always one edit away from the intention.
+///
+/// Returns nothing rather than a poor guess: a suggestion that is wrong is
+/// worse than none, because it sends the reader looking in the wrong place.
+///
+/// Ties go to whichever candidate is encountered first, which depends on the
+/// order `PATH` is searched and on directory order within it. That is not
+/// worth resolving: when two names are equally close, either answer is equally
+/// useful, and picking between them would need a rule the user cannot predict
+/// anyway.
+pub fn suggest(program: &str, path_var: Option<&OsStr>) -> Option<String> {
+    // Beyond this, "did you mean" stops being a typo and starts being a guess.
+    // One edit covers a transposition, a missing letter, or a doubled one,
+    // which is what a mistyped command almost always is.
+    let tolerance = match program.len() {
+        0..=2 => return None,
+        3..=5 => 1,
+        _ => 2,
+    };
+
+    let path_var = path_var?;
+    let mut best: Option<(usize, String)> = None;
+
+    for entry in std::env::split_paths(path_var) {
+        let Ok(entries) = std::fs::read_dir(&entry) else {
+            continue;
+        };
+
+        for candidate in entries.flatten() {
+            let name = candidate.file_name().to_string_lossy().into_owned();
+
+            // Cheap rejection first: names of very different lengths cannot be
+            // within the tolerance, and this runs over every file on PATH.
+            if name.len().abs_diff(program.len()) > tolerance {
+                continue;
+            }
+
+            let distance = edit_distance(program, &name);
+
+            // Zero means a file of exactly that name exists but could not be
+            // run — a directory, or something without the execute bit. The
+            // "command not found" message is already the whole story there, and
+            // suggesting the name back is pure noise.
+            if distance == 0 || distance > tolerance {
+                continue;
+            }
+
+            if best.as_ref().is_none_or(|(closest, _)| distance < *closest) {
+                best = Some((distance, name));
+            }
+        }
+    }
+
+    best.map(|(_, name)| name)
+}
+
+/// Levenshtein distance: how many single-character edits separate two strings.
+///
+/// The usual dynamic-programming formulation, keeping one row rather than the
+/// whole table — the distance is all that is wanted, not the edits themselves.
+fn edit_distance(left: &str, right: &str) -> usize {
+    let right_chars: Vec<char> = right.chars().collect();
+    let mut row: Vec<usize> = (0..=right_chars.len()).collect();
+
+    for (i, left_char) in left.chars().enumerate() {
+        let mut previous_diagonal = row[0];
+        row[0] = i + 1;
+
+        for (j, &right_char) in right_chars.iter().enumerate() {
+            let previous_above = row[j + 1];
+            row[j + 1] = if left_char == right_char {
+                previous_diagonal
+            } else {
+                1 + previous_diagonal.min(previous_above).min(row[j])
+            };
+            previous_diagonal = previous_above;
+        }
+    }
+
+    row[right_chars.len()]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -245,6 +331,67 @@ mod tests {
             Err(ResolveError::NotFound {
                 program: program.to_owned()
             })
+        );
+    }
+
+    #[test]
+    fn edit_distance_counts_single_character_changes() {
+        assert_eq!(edit_distance("ls", "ls"), 0);
+        assert_eq!(
+            edit_distance("sl", "ls"),
+            2,
+            "a transposition is two edits here"
+        );
+        assert_eq!(edit_distance("gti", "git"), 2);
+        assert_eq!(edit_distance("grpe", "grep"), 2);
+        assert_eq!(edit_distance("echo", "echoo"), 1);
+        assert_eq!(edit_distance("", "abc"), 3);
+    }
+
+    #[test]
+    fn a_near_miss_on_path_is_suggested() {
+        let dir = Scratch::new();
+        dir.file("grep", 0o755);
+        let found = suggest("grepp", Some(&path_var(&[&dir.0])));
+        assert_eq!(found.as_deref(), Some("grep"));
+    }
+
+    #[test]
+    fn something_wildly_different_is_not_suggested() {
+        // A wrong suggestion is worse than none: it sends the reader looking
+        // in the wrong place.
+        let dir = Scratch::new();
+        dir.file("grep", 0o755);
+        assert_eq!(suggest("kubectl", Some(&path_var(&[&dir.0]))), None);
+    }
+
+    #[test]
+    fn a_name_is_never_suggested_back_to_itself() {
+        // Reachable in practice: a directory on PATH with the same name as the
+        // command resolves to "not found" but matches exactly here.
+        let dir = Scratch::new();
+        std::fs::create_dir(dir.0.join("tool")).unwrap();
+        assert_eq!(suggest("tool", Some(&path_var(&[&dir.0]))), None);
+    }
+
+    #[test]
+    fn very_short_names_are_never_guessed_at() {
+        // Every two-letter command is one edit from every other, so a
+        // suggestion would be noise.
+        let dir = Scratch::new();
+        dir.file("ls", 0o755);
+        assert_eq!(suggest("sl", Some(&path_var(&[&dir.0]))), None);
+    }
+
+    #[test]
+    fn the_closest_candidate_wins() {
+        // `carg0` is one edit from `cargo` and four from `carpet`.
+        let dir = Scratch::new();
+        dir.file("cargo", 0o755);
+        dir.file("carpet", 0o755);
+        assert_eq!(
+            suggest("carg0", Some(&path_var(&[&dir.0]))).as_deref(),
+            Some("cargo")
         );
     }
 
