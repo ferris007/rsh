@@ -1,0 +1,75 @@
+# Builds the Debian source package the way Debian would.
+#
+# This exists because packaging that has never been built is a wish. It runs in
+# a sid container with only what debian/control declares, so a missing build
+# dependency fails here rather than in a sponsor's inbox -- and it uses
+# Debian's own rustc and its packaged crates, never the network, which is the
+# constraint that makes Debian packaging different from `cargo build`.
+
+name: debian package
+
+on:
+  push:
+    paths: ["debian/**", ".github/workflows/debian.yml", "Cargo.toml"]
+  pull_request:
+    paths: ["debian/**", ".github/workflows/debian.yml", "Cargo.toml"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container: debian:sid
+    steps:
+      - name: Install the packaging tools
+        run: |
+          set -eux
+          apt-get update -qq
+          apt-get install -y --no-install-recommends \
+            build-essential devscripts equivs lintian ca-certificates git
+
+      - uses: actions/checkout@v4
+
+      - name: What nix does Debian actually have
+        run: |
+          set -eu
+          echo "--- librust-nix packages available ---"
+          apt-cache search '^librust-nix' | sort | head -40 || true
+          echo "--- what we declare ---"
+          grep -A12 '^Build-Depends' debian/control
+
+      - name: Install build dependencies
+        run: |
+          set -eux
+          # mk-build-deps resolves debian/control's Build-Depends exactly as a
+          # buildd would, and fails loudly on anything Debian does not have.
+          mk-build-deps --install --remove \
+            --tool 'apt-get -o Debug::pkgProblemResolver=yes --no-install-recommends -y' \
+            debian/control
+
+      - name: Build
+        run: |
+          set -eux
+          # -us -uc: unsigned, because signing is the sponsor's job.
+          dpkg-buildpackage -us -uc -b
+          ls -la ../*.deb
+
+      - name: Lintian
+        run: |
+          set -eu
+          # Not fatal yet: the first run is for finding out what it says.
+          lintian --info --display-info --pedantic ../*.changes || true
+
+      - name: Does the built package actually run
+        run: |
+          set -eux
+          dpkg -i ../whelk_*.deb
+          whelk --version
+          echo 'echo built-by-debian-tooling' | whelk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: debian-package
+          path: |
+            ../*.deb
+            ../*.changes

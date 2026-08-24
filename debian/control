@@ -1,0 +1,38 @@
+Source: whelk
+Section: shells
+Priority: optional
+Maintainer: ferris007 <woremixituki@gmail.com>
+Build-Depends:
+ debhelper-compat (= 13),
+ dh-cargo (>= 25),
+ cargo:native,
+ rustc:native (>= 1.85),
+ librust-nix-0.30+event-dev,
+ librust-nix-0.30+fs-dev,
+ librust-nix-0.30+process-dev,
+ librust-nix-0.30+sched-dev,
+ librust-nix-0.30+signal-dev,
+ librust-nix-0.30+term-dev,
+Standards-Version: 4.7.0
+Rules-Requires-Root: no
+Homepage: https://github.com/ferris007/whelk
+Vcs-Browser: https://github.com/ferris007/whelk
+Vcs-Git: https://github.com/ferris007/whelk.git
+
+Package: whelk
+Architecture: any
+Depends:
+ ${misc:Depends},
+ ${shlibs:Depends},
+Description: Unix shell built from first principles
+ whelk is a Unix shell whose purpose is to make the operating system's process
+ model visible rather than hide it: processes, file descriptors, pipelines,
+ signals, job control, terminals, and an event loop, each built on primitives
+ that were understood first.
+ .
+ It runs real command lines -- pipelines, redirection, parameter expansion,
+ quoting, job control with jobs, fg and bg, line editing with history and
+ completion -- but it is not a drop-in replacement for an interactive shell.
+ It has no &&, ||, or ;, no globbing, no command substitution, no
+ here-documents, and no multi-line input. Those are parsed and refused by
+ name rather than mistaken for arguments, and are listed in whelk --help.

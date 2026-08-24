@@ -1,0 +1,77 @@
+.TH WHELK 1 "August 2026" "whelk 0.2.1" "User Commands"
+.SH NAME
+whelk \- a Unix shell built from first principles
+.SH SYNOPSIS
+.B whelk
+.RI [ --benchmark | --help | --version ]
+.br
+.B whelk
+.RI < " script"
+.SH DESCRIPTION
+.B whelk
+is a Unix shell whose purpose is to make the operating system's process model
+visible rather than hide it. It reads commands from standard input, one per
+line, and runs them: pipelines, redirection, parameter expansion, quoting, and
+job control.
+.PP
+When standard input is a terminal it prompts, edits the line, keeps history in
+.IR ~/.whelk_history ,
+and completes commands, paths and variables with the tab key. When standard
+input is a pipe or a file it prints no prompt and runs what it is given.
+.PP
+There is no run-this-file form: commands come from standard input.
+.SH OPTIONS
+.TP
+.B \-\-benchmark
+Measure startup, a single command, and a pipeline on this machine.
+.TP
+.B \-h, \-\-help
+Print usage, including the list of syntax that is deliberately unsupported.
+.TP
+.B \-V, \-\-version
+Print the version.
+.SH BUILTINS
+.TP
+.BI cd " [dir|-|~]"
+Change directory;
+.B -
+returns to the previous one.
+.TP
+.BI exit " [status]"
+Leave, defaulting to the last command's status.
+.TP
+.B jobs
+List jobs with their state.
+.TP
+.BI fg " [%n]"
+Resume a job in the foreground.
+.TP
+.BI bg " [%n]"
+Resume a job in the background.
+.SH FILES
+.TP
+.I ~/.whelkrc
+Read before the first prompt when interactive, one command per line.
+.TP
+.I ~/.whelk_history
+Command history, carried between sessions.
+.SH ENVIRONMENT
+.TP
+.B WHELK_TRACE
+When set to 1, print timings for parsing, expansion, resolution and spawning.
+.SH EXIT STATUS
+The status of the last command run; 127 if a command was not found, 126 if it
+was found but not executable, 128 plus the signal number if it was killed by a
+signal, and 2 for an error on whelk's own command line.
+.SH LIMITATIONS
+.B whelk
+deliberately does not implement
+.BR && ", " || ", " ; ,
+globbing, command substitution, here-documents, shell functions, aliases, or
+multi-line input. These are parsed and refused by name rather than mistaken for
+arguments.
+.SH SEE ALSO
+.BR dash (1),
+.BR bash (1)
+.SH AUTHOR
+whelk contributors. Source at https://github.com/ferris007/whelk

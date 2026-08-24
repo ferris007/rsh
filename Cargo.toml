@@ -50,7 +50,7 @@ whelk-executor = { path = "crates/whelk-executor", version = "0.2.0" }
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
 # `unsafe` in this project is limited to the places where the *semantics* are
 # genuinely unsafe (fork, exec), not to every syscall.
-nix = { version = "0.31", default-features = false, features = ["event", "fs", "process", "sched", "signal", "term"] }
+nix = { version = "0.30", default-features = false, features = ["event", "fs", "process", "sched", "signal", "term"] }
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "deny"
