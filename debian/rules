@@ -5,8 +5,9 @@
 
 # The library crates this binary is built from live in the same source tree and
 # are not separately useful, so nothing is installed for them.
+# `cargo install` takes --bin but not -p; that one is cargo build's.
 override_dh_auto_install:
-	dh_auto_install -- -p whelk --bin whelk
+	dh_auto_install -- --bin whelk
 
 # Only the shell. The workspace also holds benchmarks and the standalone
 # experiments, whose dependencies are not build dependencies of this package
