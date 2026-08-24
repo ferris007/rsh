@@ -5,6 +5,7 @@
 //! table lives in `rsh-process`; everything that decides what a line means
 //! lives in `rsh-parser` and `rsh-executor`.
 
+mod benchmark;
 mod complete;
 mod input;
 mod interactive;
@@ -25,6 +26,19 @@ const PROMPT: &str = "rsh> ";
 const EXIT_INTERRUPTED: i32 = 130;
 
 fn main() -> ExitCode {
+    // One flag, handled before anything else is set up: the measurements start
+    // fresh shells of their own, and a half-initialised one would be measuring
+    // the wrong thing.
+    if std::env::args().nth(1).as_deref() == Some("--benchmark") {
+        return match benchmark::run() {
+            Ok(()) => ExitCode::SUCCESS,
+            Err(error) => {
+                eprintln!("rsh: benchmark failed: {error}");
+                ExitCode::from(1)
+            }
+        };
+    }
+
     // Before anything else. A shell that has not installed its handlers is a
     // shell that Ctrl-C kills.
     let mut shell = Shell::new();

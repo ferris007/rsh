@@ -241,7 +241,12 @@ impl Shell {
     }
 
     fn dispatch(&mut self, line: &str) -> Outcome {
-        let pipeline = match rsh_parser::parse(line) {
+        let parsed = {
+            let _span = rsh_trace::span!("parse", input = line.len());
+            rsh_parser::parse(line)
+        };
+
+        let pipeline = match parsed {
             Ok(Some(pipeline)) => pipeline,
             // A blank line is not a command and does not disturb `$?`. Typing
             // Enter at a prompt should never change what `$?` reports.

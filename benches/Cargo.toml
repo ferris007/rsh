@@ -1,0 +1,34 @@
+[package]
+name = "rsh-benches"
+description = "Benchmarks for the rsh shell"
+publish = false
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+
+[dev-dependencies]
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
+rsh-executor = { workspace = true }
+rsh-line = { workspace = true }
+rsh-parser = { workspace = true }
+rsh-process = { workspace = true }
+
+[[bench]]
+name = "parsing"
+harness = false
+
+[[bench]]
+name = "processes"
+harness = false
+
+[[bench]]
+name = "editing"
+harness = false
+
+[lints]
+workspace = true

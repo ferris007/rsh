@@ -14,6 +14,7 @@ rsh-job = { workspace = true }
 rsh-parser = { workspace = true }
 rsh-process = { workspace = true }
 rsh-terminal = { workspace = true }
+rsh-trace = { workspace = true }
 
 [lints]
 workspace = true

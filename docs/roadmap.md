@@ -322,13 +322,37 @@ pipeline      4.91 ms
 memory        3.7 MB
 ```
 
-- [ ] Criterion benchmarks
-- [ ] tracing
-- [ ] structured diagnostics
-- [ ] flamegraphs
-- [ ] allocation profiling
-- [ ] syscall analysis
-- [ ] performance regression tests
+- [x] Criterion benchmarks
+- [x] tracing — see the note
+- [x] structured diagnostics
+- [ ] flamegraphs — a recipe, not a result
+- [x] allocation profiling
+- [ ] syscall analysis — a recipe, not a result
+- [x] performance regression tests
+
+Notes: [`docs/performance.md`](performance.md).
+
+The headline: starting a process costs 492µs, and parsing the command line that
+describes it costs 1.3µs. A shell that optimised its parser would be polishing a
+rounding error.
+
+The benchmarks found something nobody had timed — "did you mean", added in Phase
+8, costs 61ms, because it reads every directory on `PATH`. Measured, traced to
+WSL's Windows filesystem bridge rather than to the algorithm, and **left alone**.
+That is what measuring before optimising looks like when the answer is "don't".
+
+**tracing** is `rsh-trace`, not the crate. A shell's most interesting moment is
+the window between `fork` and `exec`, where nothing may allocate, and a
+subscriber that formats an event into a `String` is exactly what must not happen
+there.
+
+**Regression tests** count allocations rather than time. CI wall-clock varies
+several-fold, so a threshold loose enough to pass is too loose to catch
+anything.
+
+**Flamegraphs and syscall analysis** are documented procedures. This machine has
+no `perf`, `strace`, or `valgrind`, and printing plausible output without having
+produced any would be worse than leaving the boxes unchecked.
 
 ---
 
