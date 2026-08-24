@@ -159,6 +159,12 @@ mod backend {
     /// How many events one `kevent` call may report.
     const CAPACITY: usize = 16;
 
+    /// A timeout of zero: return whatever is ready and do not wait.
+    const IMMEDIATELY: nix::libc::timespec = nix::libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+
     #[derive(Debug)]
     pub(super) struct Inner {
         kqueue: Kqueue,
@@ -189,9 +195,7 @@ mod backend {
 
         pub(super) fn watch(&mut self, fd: RawFd, token: Token) -> Result<(), Errno> {
             // kqueue carries the caller's value in `udata` rather than in a
-            // separate field, and registration is a "change" submitted through
-            // the same call that waits — with a zero timeout here, so it only
-            // registers.
+            // field of its own.
             let change = KEvent::new(
                 fd as usize,
                 EventFilter::EVFILT_READ,
@@ -201,7 +205,9 @@ mod backend {
                 token.0 as isize,
             );
 
-            self.kqueue.kevent(&[change], &mut [], Some(0))?;
+            // A zero timeout, so this registers and returns rather than
+            // waiting: kqueue submits changes through the same call that waits.
+            self.kqueue.kevent(&[change], &mut [], Some(IMMEDIATELY))?;
             Ok(())
         }
 
@@ -215,19 +221,25 @@ mod backend {
                 0,
             );
 
-            self.kqueue.kevent(&[change], &mut [], Some(0))?;
+            self.kqueue.kevent(&[change], &mut [], Some(IMMEDIATELY))?;
             Ok(())
         }
 
         pub(super) fn wait(&mut self, timeout: Option<Duration>) -> Result<&[Event], Errno> {
-            let milliseconds = timeout.map(|duration| duration.as_millis() as usize);
-            let count = self.kqueue.kevent(&[], &mut self.buffer, milliseconds)?;
+            // kqueue takes a `timespec` rather than a count of milliseconds,
+            // which is the more precise interface and the less convenient one.
+            let timeout = timeout.map(|duration| nix::libc::timespec {
+                tv_sec: duration.as_secs() as nix::libc::time_t,
+                tv_nsec: i64::from(duration.subsec_nanos()) as _,
+            });
+
+            let count = self.kqueue.kevent(&[], &mut self.buffer, timeout)?;
 
             self.ready.clear();
             for event in &self.buffer[..count] {
                 self.ready.push(Event {
                     token: Token(event.udata() as u64),
-                    readable: event.filter() == Ok(EventFilter::EVFILT_READ),
+                    readable: matches!(event.filter(), Ok(EventFilter::EVFILT_READ)),
                     // kqueue reports the far end closing as a flag on the read
                     // event rather than as a separate condition, which is the
                     // more honest description of what happened.
