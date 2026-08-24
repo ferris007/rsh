@@ -25,7 +25,7 @@ override_dh_auto_configure:
 	rm -f Cargo.lock
 
 override_dh_auto_build:
-	cargo build --release --offline --locked=false -p whelk
+	cargo build --release --offline -p whelk
 
 override_dh_auto_install:
 	install -D -m 755 target/release/whelk debian/whelk/usr/bin/whelk
