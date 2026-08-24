@@ -1,0 +1,32 @@
+Description: Build only the shell, not the benchmarks or the experiments
+ The workspace holds the shell, the eight libraries it is made of, a benchmark
+ crate, and eight standalone experiments. Cargo resolves the whole workspace
+ before building any of it, dev-dependencies included, so the benchmark crate's
+ criterion has to be satisfiable even though nothing in the package needs it --
+ and it is not in the archive. The experiments are removed with it: they are
+ teaching material that builds its own binaries, and none of them belong in a
+ package that installs one shell.
+Author: ferris007 <woremixituki@gmail.com>
+Forwarded: not-needed
+Last-Update: 2026-08-24
+
+diff --git a/Cargo.toml b/Cargo.toml
+index d5f355e..29c8ce4 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -10,15 +10,6 @@ members = [
+     "crates/whelk-line",
+     "crates/whelk-event",
+     "crates/whelk-trace",
+-    "benches",
+-    "experiments/fork_exec",
+-    "experiments/file_descriptors",
+-    "experiments/pipes",
+-    "experiments/signals",
+-    "experiments/process_groups",
+-    "experiments/pty",
+-    "experiments/epoll",
+-    "experiments/namespaces",
+ ]
+ 
+ [workspace.package]
