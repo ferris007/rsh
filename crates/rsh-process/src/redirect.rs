@@ -90,9 +90,13 @@ impl Redirections {
 
     /// Whether a descriptor is open in this process.
     ///
-    /// Checked in the parent so that `2>&9` fails with a message instead of
-    /// failing inside the child, where the only way to report it is an exit
-    /// code.
+    /// Checked in the parent so that duplicating a closed descriptor fails with
+    /// a message instead of failing inside the child, where the only way to
+    /// report it is an exit code.
+    ///
+    /// Note that this is a question about *this process*, not about the number.
+    /// A shell inherits whatever descriptors its launcher left open, so the
+    /// same `2>&9` can be valid under one parent and an error under another.
     pub fn is_open(fd: RawFd) -> bool {
         fcntl(unsafe_borrow(fd), FcntlArg::F_GETFD).is_ok()
     }

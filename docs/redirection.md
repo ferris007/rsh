@@ -111,6 +111,22 @@ This is written up as a runnable experiment in
 [`experiments/file_descriptors`](../experiments/file_descriptors/), because it
 cost a real bug and reading past it in the man page is easy.
 
+## A shell inherits stray descriptors
+
+`>&N` is checked in the parent, with `fcntl(N, F_GETFD)`, so `2>&9` fails with
+a message rather than inside the child. But *which* numbers are open is not a
+property of the shell — it is whatever the process that launched it left behind.
+
+This is not hypothetical. A test asserting that `2>&9` is an error passed on
+Linux and failed on the macOS CI runner, because that runner's test harness
+handed the shell an open descriptor 9. The shell was right and the test was
+wrong: it had encoded an assumption about the environment as if it were a fact
+about `rsh`.
+
+Descriptors 0, 1, and 2 are conventional, not special. Everything above them is
+inherited state, and a program that assumes otherwise is reading its parent's
+mind.
+
 ## Builtins are different
 
 `cd` runs inside the shell. There is no child whose descriptors can be

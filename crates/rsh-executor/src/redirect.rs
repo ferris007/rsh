@@ -171,8 +171,13 @@ fn descriptor(text: &str, span: Span) -> Result<i32, RedirectError> {
             span,
         })?;
 
-    // Checked here so `2>&9` is a message rather than a silent failure inside
-    // the child, where the only way to report anything is an exit code.
+    // Checked here so that duplicating a closed descriptor is a message rather
+    // than a silent failure inside the child, where the only way to report
+    // anything is an exit code.
+    //
+    // Which descriptors are open is not a property of the shell: it inherits
+    // whatever its launcher left behind, so `2>&9` may be perfectly valid on
+    // one machine and an error on the next.
     if !Redirections::is_open(fd) {
         return Err(RedirectError::DescriptorNotOpen { fd, span });
     }
@@ -314,10 +319,17 @@ mod tests {
     fn duplicating_a_closed_descriptor_is_caught_in_the_parent() {
         // Checked here rather than in the child, where the only way to report
         // it would be an exit code.
-        let error = plan_line("echo hi 2>&9", &MapEnv::new()).expect_err("expected error");
+        //
+        // The number is absurd on purpose. A small one like 9 is not reliably
+        // closed: a process inherits whatever descriptors its launcher left
+        // open, and on some CI runners that includes single digits. Nothing
+        // opens a descriptor this high by accident, and if it exceeds
+        // RLIMIT_NOFILE the kernel reports EBADF anyway — the same answer, for
+        // a second reason.
+        let error = plan_line("echo hi 2>&1000000", &MapEnv::new()).expect_err("expected error");
         assert!(matches!(
             error,
-            RedirectError::DescriptorNotOpen { fd: 9, .. }
+            RedirectError::DescriptorNotOpen { fd: 1_000_000, .. }
         ));
     }
 
@@ -335,7 +347,9 @@ mod tests {
 
     #[test]
     fn errors_carry_the_span_of_the_redirection() {
-        let error = plan_line("echo hi 2>&9", &MapEnv::new()).expect_err("expected error");
-        assert_eq!(error.span().slice("echo hi 2>&9"), Some("2>&9"));
+        // A non-numeric target, so this test does not depend on which
+        // descriptors happen to be open.
+        let error = plan_line("echo hi 2>&x", &MapEnv::new()).expect_err("expected error");
+        assert_eq!(error.span().slice("echo hi 2>&x"), Some("2>&x"));
     }
 }
