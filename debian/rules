@@ -1,28 +1,22 @@
 #!/usr/bin/make -f
 
-# Defines DEB_HOST_RUST_TYPE, which is the directory cargo puts the binary in.
-include /usr/share/rustc/architecture.mk
-
 %:
 	dh $@ --buildsystem cargo
 
-# The library crates this binary is built from live in the same source tree and
-# are not separately useful, so nothing is installed for them.
-# Installed by hand rather than through `cargo install`, which insists on a
-# package manifest and finds a virtual one: the root of this repository is a
-# workspace, and the shell is a member of it. dh_auto_build has already
-# produced the binary, so this just puts it where the package wants it.
+# The root of this repository is a workspace -- a virtual manifest, which
+# `cargo install` refuses ("found a virtual manifest instead of a package
+# manifest"). Pointing it at the shell's own directory gives it a package to
+# install; the eight libraries it is built from are siblings in the same source
+# tree and resolve by path, needing nothing from the network.
+#
+# This is also what keeps the build to the shell alone. The benchmarks and the
+# eight standalone experiments are other members of the same workspace, and
+# nothing here asks for them -- which matters because the benchmarks want
+# criterion, and a buildd has no way to fetch it.
 override_dh_auto_install:
-	install -D -m 755 target/$(DEB_HOST_RUST_TYPE)/release/whelk \
-		debian/whelk/usr/bin/whelk
+	dh_auto_install -D crates/whelk -- --bin whelk
 
-# Only the shell. The workspace also holds benchmarks and the standalone
-# experiments, whose dependencies are not build dependencies of this package
-# and are not present in a buildd chroot.
-override_dh_auto_build:
-	dh_auto_build -- -p whelk
-
-# The test suite drives a real shell over a pseudoterminal and spawns processes.
-# It passes on a normal machine and is not something to make a build depend on
-# inside a buildd chroot.
+# The test suite drives a real shell over a pseudoterminal and spawns
+# processes. It passes on a normal machine and is not something to make a
+# package build depend on inside a buildd chroot.
 override_dh_auto_test:
