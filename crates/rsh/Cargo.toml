@@ -23,3 +23,30 @@ nix = { workspace = true }
 
 [lints]
 workspace = true
+
+# Debian packaging, built with `cargo deb`.
+#
+# The `conflicts` line is the important one. `/usr/bin/rsh` has belonged to the
+# BSD remote-shell client since long before this project existed, and Debian
+# still ships it as `rsh-client` and `rsh-redone-client`. Installing this
+# package over either of those would leave whichever landed second owning a
+# name the other's users expect. Declaring the conflict makes the package
+# manager say so plainly instead of letting the surprise happen quietly.
+#
+# The binary is deliberately left for cargo-deb to find on its own: naming it
+# in `assets` overrides the handling that strips it, and `debug = 1` in the
+# release profile makes that a 6.7M difference.
+[package.metadata.deb]
+maintainer = "ferris007 <woremixituki@gmail.com>"
+copyright = "rsh contributors, MIT OR Apache-2.0"
+section = "shells"
+priority = "optional"
+conflicts = "rsh-client, rsh-redone-client"
+extended-description = '''
+A Unix shell built from first principles: parsing, expansion, redirection,
+pipelines, signals, job control, terminal handling, line editing, and an
+event loop, each built on primitives understood first and explained beside
+the code.
+
+Not a drop-in shell. It has no &&, ||, ;, globbing, command substitution, or
+multi-line input, and refuses them by name rather than misreading them.'''

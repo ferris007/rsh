@@ -9,6 +9,12 @@
 # `debug = 1` in the release profile keeps symbols for flamegraphs, which is
 # right for a working tree and wrong for a download. The binaries are stripped
 # on the way into the archive.
+#
+# Three targets, and the two absences are deliberate. There is no Intel macOS
+# build because GitHub is retiring the `macos-13` image and a job that waits an
+# hour for a runner that never arrives holds up every release; Intel Macs can
+# `cargo install --git`. There is no BSD build, though the README claims BSD
+# works, because GitHub has no BSD runner to be honest on.
 
 name: Release
 
@@ -29,16 +35,23 @@ jobs:
   build:
     name: ${{ matrix.target }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+          # Static, so it runs on any Linux regardless of how old its glibc is.
+          # The gnu build above needs glibc 2.39, which rules out Ubuntu 22.04
+          # and Debian 12. This one also carries the .deb, for the same reason:
+          # a package that depends on libc6 >= 2.39 cannot be installed on the
+          # distributions most likely to want it.
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            deb: true
           - os: macos-latest
             target: aarch64-apple-darwin
-          - os: macos-13
-            target: x86_64-apple-darwin
     steps:
       - uses: actions/checkout@v4
         with:
@@ -82,6 +95,30 @@ jobs:
           # a command line on stdin, where it takes the non-interactive path.
           echo 'echo release-smoke-test' | "$bin"
 
+      - name: Build a .deb
+        if: matrix.deb
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo install cargo-deb --locked
+          # --strip because `debug = 1` in the release profile otherwise ships
+          # 6.7M of symbols to everyone who installs the package. --no-build to
+          # package the binary that was just built and smoke-tested, rather than
+          # a second one nobody looked at.
+          cargo deb -p rsh --target ${{ matrix.target }} --strip --no-build --output dist/
+
+      - name: Check the .deb
+        if: matrix.deb
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb=$(ls dist/*.deb)
+          dpkg-deb -I "$deb"
+          # Unpack and run it, rather than trusting that a package that built is
+          # a package that works.
+          dpkg-deb -x "$deb" /tmp/debcheck
+          echo 'echo deb-smoke-test' | /tmp/debcheck/usr/bin/rsh
+
       - name: Upload to the release
         shell: bash
         env:
@@ -93,3 +130,8 @@ jobs:
             dist/rsh-${tag}-${{ matrix.target }}.tar.gz \
             dist/rsh-${tag}-${{ matrix.target }}.tar.gz.sha256 \
             --clobber
+          # The .deb carries its own Debian-style name, so it is uploaded by
+          # whatever it turned out to be called rather than by a guess.
+          if [ -n "$(ls dist/*.deb 2>/dev/null || true)" ]; then
+            gh release upload "$tag" dist/*.deb --clobber
+          fi
