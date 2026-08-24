@@ -299,7 +299,7 @@ checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
 
 [[package]]
 name = "rsh"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
  "rsh-event",
@@ -310,7 +310,7 @@ dependencies = [
 
 [[package]]
 name = "rsh-benches"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "criterion",
  "rsh-executor",
@@ -321,14 +321,14 @@ dependencies = [
 
 [[package]]
 name = "rsh-event"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "rsh-executor"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
  "rsh-job",
@@ -340,7 +340,7 @@ dependencies = [
 
 [[package]]
 name = "rsh-job"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
  "rsh-process",
@@ -349,32 +349,32 @@ dependencies = [
 
 [[package]]
 name = "rsh-line"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "rsh-terminal",
 ]
 
 [[package]]
 name = "rsh-parser"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "rsh-process"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "rsh-terminal"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "rsh-trace"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "same-file"
@@ -530,7 +530,7 @@ dependencies = [
 
 [[package]]
 name = "xp-epoll"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
  "rsh-event",
@@ -538,49 +538,49 @@ dependencies = [
 
 [[package]]
 name = "xp-file-descriptors"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-fork-exec"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-namespaces"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-pipes"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-process-groups"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-pty"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
 
 [[package]]
 name = "xp-signals"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "nix",
 ]
