@@ -8,6 +8,7 @@ members = [
     "experiments/fork_exec",
     "experiments/file_descriptors",
     "experiments/pipes",
+    "experiments/signals",
 ]
 
 [workspace.package]

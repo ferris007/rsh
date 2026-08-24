@@ -11,5 +11,10 @@ authors.workspace = true
 [dependencies]
 rsh-executor = { workspace = true }
 
+[dev-dependencies]
+# Only the tests need to send signals; the shell itself reaches the process
+# table through rsh-process.
+nix = { workspace = true }
+
 [lints]
 workspace = true

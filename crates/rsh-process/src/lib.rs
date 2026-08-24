@@ -9,10 +9,12 @@ mod command;
 mod path;
 mod pipe;
 mod redirect;
+mod signal;
 mod status;
 
 pub use command::{Child, Command, SpawnError};
 pub use path::{resolve, ResolveError};
 pub use pipe::Pipe;
 pub use redirect::{Redirections, Restore};
+pub use signal::{install as install_signal_handlers, shutdown_requested, take_interrupt};
 pub use status::{ExitStatus, EXIT_NOT_EXECUTABLE, EXIT_NOT_FOUND, EXIT_SIGNAL_BASE};

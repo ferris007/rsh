@@ -16,39 +16,31 @@ Unix actually works**.
 
 ## Status
 
-Phase 4 — pipelines work. Together with the parser, expansion, and redirection
-from earlier phases, the shell now runs real command lines.
+Phase 5 — signals. Ctrl-C no longer kills the shell: it abandons the line,
+reports 130, and prompts again. Ctrl-Z on a foreground command no longer wedges
+it either. `SIGTERM` and `SIGHUP` shut it down cleanly.
 
 ```console
 $ cargo run -p rsh
 rsh> printf '3\n1\n2\n' | sort | head -2
 1
 2
+rsh> sleep 30
+^C
+rsh> echo $?
+130
 rsh> yes | head -2
 y
 y
 rsh> echo hello > out.txt
 rsh> cat < out.txt
 hello
-rsh> sh -c 'exit 3' | sh -c 'exit 0'
-rsh> echo "the pipeline reported $?"
-the pipeline reported 0
-rsh> echo a ; echo b
-rsh: `;` is not supported
-  echo a ; echo b
-         ^
 rsh> exit
 ```
 
-`yes | head -2` terminates, which is less obvious than it looks: `head` exits,
-`yes` writes into a pipe with nobody reading, and the kernel kills it with
-`SIGPIPE`. A shell written in Rust has to reset that signal explicitly, or every
-program it runs inherits Rust's "ignore SIGPIPE" and the mechanism is gone —
-see [`experiments/pipes`](experiments/pipes/).
-
-Signals, job control, and terminal handling are still ahead. Syntax the shell
-cannot run yet is parsed, refused by name, and pointed at — never silently
-treated as an argument.
+Job control, terminal handling, and the interactive layer are still ahead.
+Syntax the shell cannot run yet is parsed, refused by name, and pointed at —
+never silently treated as an argument.
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 

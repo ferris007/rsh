@@ -5,49 +5,99 @@
 //! table lives in `rsh-process`; everything that decides what a line means
 //! lives in `rsh-parser` and `rsh-executor`.
 
-use std::io::{self, BufRead, IsTerminal, Write};
+mod input;
+
+use std::io::{self, IsTerminal, Write};
 use std::process::ExitCode;
 
 use rsh_executor::{Outcome, Shell};
+
+use crate::input::{Input, Reader};
 
 /// The prompt. Phase 8 makes this configurable; for now it is a constant so
 /// that nothing about the prompt can affect what a command does.
 const PROMPT: &str = "rsh> ";
 
+/// Status for a command interrupted by Ctrl-C: `128 + SIGINT`.
+const EXIT_INTERRUPTED: i32 = 130;
+
 fn main() -> ExitCode {
-    let stdin = io::stdin();
+    // Before anything else. A shell that has not installed its handlers is a
+    // shell that Ctrl-C kills.
+    let mut shell = Shell::new();
+    if let Err(error) = shell.install_signal_handlers() {
+        eprintln!("rsh: cannot install signal handlers: {error}");
+        return ExitCode::from(1);
+    }
 
     // Interactivity is decided by stdin alone. A shell reading a script from a
-    // pipe should print no prompts, but it is still the same shell — the
-    // difference is cosmetic, not behavioural, and nothing below this line
-    // branches on it.
-    let interactive = stdin.is_terminal();
+    // pipe should print no prompts, but it is still the same shell.
+    let interactive = io::stdin().is_terminal();
 
-    let mut input = stdin.lock();
-    let mut shell = Shell::new();
-    let mut line = String::new();
+    let mut reader = Reader::new();
 
     let status = loop {
+        // Checked before blocking on input, so a shell told to stop does not
+        // sit at a prompt waiting for a line it will never use.
+        if let Some(signal) = shell.shutdown_requested() {
+            if interactive {
+                eprintln!();
+            }
+            break 128 + signal;
+        }
+
         if interactive {
             prompt();
         }
 
-        line.clear();
-        match input.read_line(&mut line) {
+        match reader.next_line() {
             // End of input. Ctrl-D at a prompt means "no more commands", not
             // "something went wrong", so the shell leaves with the status of
             // the last command it ran — the same status `exit` would use.
-            Ok(0) => {
+            Ok(Input::EndOfFile) => {
                 if interactive {
                     // The user's Ctrl-D left the cursor after the prompt.
                     eprintln!();
                 }
-                break shell.last_status();
+
+                // A shutdown request and an end of input can arrive together —
+                // a terminal hanging up does both. Being asked to terminate is
+                // the more specific fact, so it wins: reporting the last
+                // command's status here would lose the reason the shell
+                // stopped.
+                break match shell.shutdown_requested() {
+                    Some(signal) => 128 + signal,
+                    None => shell.last_status(),
+                };
             }
-            Ok(_) => match shell.run_line(&line) {
-                Outcome::Continue => {}
-                Outcome::Exit(status) => break status,
-            },
+
+            // Ctrl-C while waiting for a line. The partial line is gone, the
+            // status records the interruption, and the shell prompts again —
+            // it does not exit, and it does not run anything.
+            Ok(Input::Interrupted) => {
+                eprintln!();
+                shell.set_last_status(EXIT_INTERRUPTED);
+            }
+
+            Ok(Input::Line(line)) => {
+                // Any Ctrl-C that arrived while the line was being typed
+                // belongs to the line that was abandoned, not to this one.
+                shell.take_interrupt();
+
+                match shell.run_line(&line) {
+                    Outcome::Continue => {}
+                    Outcome::Exit(status) => break status,
+                }
+
+                // A foreground command shares the shell's process group, so
+                // Ctrl-C reached the shell too. The command has already died of
+                // it; the flag would otherwise fire at the next prompt and look
+                // like a keystroke the user never made.
+                if shell.take_interrupt() && interactive {
+                    eprintln!();
+                }
+            }
+
             Err(error) => {
                 eprintln!("rsh: failed to read input: {error}");
                 break 1;
@@ -55,8 +105,8 @@ fn main() -> ExitCode {
         }
     };
 
-    // Statuses are a single byte to the operating system: `exit 300` becomes
-    // 44 no matter what any shell does, so truncate here rather than pretend
+    // Statuses are a single byte to the operating system: `exit 300` becomes 44
+    // no matter what any shell does, so truncate here rather than pretend
     // otherwise. The `& 0xff` also keeps negative arguments from wrapping into
     // a nonsense `u8` cast.
     ExitCode::from((status & 0xff) as u8)

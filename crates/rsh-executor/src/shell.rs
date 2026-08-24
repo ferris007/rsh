@@ -47,6 +47,37 @@ impl Shell {
         self.last_status
     }
 
+    /// Install the shell's signal handlers.
+    ///
+    /// Exposed here rather than reached for directly by the binary, so the
+    /// layering stays honest: the REPL talks to the executor, and the executor
+    /// is what owns shell state — of which "has a Ctrl-C arrived" is a part.
+    pub fn install_signal_handlers(&self) -> Result<(), Errno> {
+        rsh_process::install_signal_handlers()
+    }
+
+    /// Whether a Ctrl-C has arrived since this was last called.
+    pub fn take_interrupt(&self) -> bool {
+        rsh_process::take_interrupt()
+    }
+
+    /// The signal number that asked the shell to shut down, if one has.
+    ///
+    /// A raw number rather than a signal type, so that the binary does not need
+    /// to know about `nix` to ask the question.
+    pub fn shutdown_requested(&self) -> Option<i32> {
+        rsh_process::shutdown_requested().map(|signal| signal as i32)
+    }
+
+    /// Record a status that did not come from running a command.
+    ///
+    /// Ctrl-C at the prompt is the case: nothing ran, but `$?` should report
+    /// 130 as it would in any other shell, so that a later `echo $?` tells the
+    /// truth about what happened.
+    pub fn set_last_status(&mut self, status: i32) {
+        self.last_status = status;
+    }
+
     /// Parse and run one line of input.
     ///
     /// Errors are reported to stderr as they happen rather than returned: a
@@ -203,7 +234,17 @@ fn run_external(argv: &[String], redirections: Redirections) -> i32 {
     // the child when it exits. See experiments/fork_exec.
     let _ = std::io::stdout().flush();
 
-    match prepared.spawn().and_then(rsh_process::Child::wait) {
+    let waited = prepared.spawn().and_then(|child| {
+        child.wait_with(|signal| {
+            // The user pressed Ctrl-Z, or the program stopped itself. There is
+            // nowhere to put a stopped job until there is a job table, so the
+            // shell says what it is doing rather than appearing to ignore the
+            // keystroke.
+            eprintln!("rsh: {program}: stopped by {signal}; continuing (job control is phase 6)");
+        })
+    });
+
+    match waited {
         Ok(status) => status.code(),
         Err(error) => {
             eprintln!("rsh: {program}: {error}");
