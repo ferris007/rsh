@@ -183,10 +183,12 @@ fn tab_completes_a_command() {
 
 #[test]
 fn tab_completes_a_path() {
+    // `/etc/passwd` rather than something Linux-only: this test is about the
+    // shell, not about which files a platform happens to ship.
     let mut session = Terminal::open();
-    session.type_in("ls /etc/hostna");
+    session.type_in("ls /etc/passw");
     session.type_in(TAB);
-    session.expect("/etc/hostname");
+    session.expect("/etc/passwd");
 }
 
 #[test]

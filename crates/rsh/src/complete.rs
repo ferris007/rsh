@@ -162,6 +162,40 @@ fn is_executable(path: &Path) -> bool {
 mod tests {
     use super::*;
 
+    /// A directory with known contents, so completion tests do not depend on
+    /// what happens to be installed. `/etc/hostname` exists on Linux and not on
+    /// macOS — the kind of difference that makes a test fail for a reason
+    /// having nothing to do with the shell.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(tag: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("rsh-complete-{}-{tag}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).expect("failed to create a scratch directory");
+            Self(dir)
+        }
+
+        fn file(&self, name: &str) {
+            std::fs::write(self.0.join(name), "").expect("failed to write a scratch file");
+        }
+
+        fn directory(&self, name: &str) {
+            std::fs::create_dir_all(self.0.join(name)).expect("failed to create a scratch dir");
+        }
+
+        fn prefix(&self, partial: &str) -> String {
+            format!("{}/{partial}", self.0.display())
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
     #[test]
     fn the_first_word_completes_to_commands() {
         let found = Shell.complete("ex", 2);
@@ -198,13 +232,14 @@ mod tests {
 
     #[test]
     fn a_later_word_completes_to_paths() {
-        let found = Shell.complete("cat /etc/hostn", 14);
+        let scratch = Scratch::new("paths");
+        scratch.file("target-file");
+
+        let line = format!("cat {}", scratch.prefix("target-f"));
+        let found = Shell.complete(&line, line.len());
+
         assert_eq!(found.start, 4);
-        assert!(
-            found.candidates.iter().any(|c| c.starts_with("/etc/hostn")),
-            "{:?}",
-            found.candidates
-        );
+        assert_eq!(found.candidates, [scratch.prefix("target-file")]);
     }
 
     #[test]
@@ -224,11 +259,16 @@ mod tests {
     fn directories_are_offered_with_a_trailing_slash() {
         // Which says the completion is not finished, and lets the next Tab
         // continue without a keystroke in between.
-        let found = Shell.complete("ls /us", 6);
-        assert!(
-            found.candidates.contains(&"/usr/".to_owned()),
-            "{:?}",
-            found.candidates
+        let scratch = Scratch::new("dirs");
+        scratch.directory("a-directory");
+        scratch.file("a-file");
+
+        let line = format!("ls {}", scratch.prefix("a-"));
+        let found = Shell.complete(&line, line.len());
+
+        assert_eq!(
+            found.candidates,
+            [scratch.prefix("a-directory/"), scratch.prefix("a-file")]
         );
     }
 
@@ -249,11 +289,18 @@ mod tests {
     #[test]
     fn hidden_files_stay_hidden_until_asked_for() {
         // Otherwise a Tab in a home directory buries the answer under dotfiles.
-        let visible = Shell.complete("ls /etc/", 8);
-        assert!(
-            !visible.candidates.iter().any(|c| c.starts_with("/etc/.")),
-            "dotfiles should not appear unprompted"
-        );
+        let scratch = Scratch::new("hidden");
+        scratch.file(".hidden");
+        scratch.file("visible");
+
+        let line = format!("ls {}", scratch.prefix(""));
+        let found = Shell.complete(&line, line.len());
+        assert_eq!(found.candidates, [scratch.prefix("visible")]);
+
+        // Asked for explicitly, they appear.
+        let line = format!("ls {}", scratch.prefix("."));
+        let found = Shell.complete(&line, line.len());
+        assert_eq!(found.candidates, [scratch.prefix(".hidden")]);
     }
 
     #[test]
