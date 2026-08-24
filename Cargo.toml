@@ -29,15 +29,23 @@ license = "MIT OR Apache-2.0"
 repository = "https://github.com/ferris007/whelk"
 authors = ["whelk contributors"]
 
+# Both a path and a version, and both are needed. The path is what a build in
+# this workspace uses; the version is what `cargo publish` writes into the
+# manifest it uploads, having stripped the path out -- a crate on the registry
+# cannot refer to a directory on the machine that published it. A path without
+# a version publishes nothing: cargo refuses the crate rather than upload one
+# whose dependencies nobody else can resolve.
+#
+# These track the workspace version and have to be raised with it.
 [workspace.dependencies]
-whelk-parser = { path = "crates/whelk-parser" }
-whelk-process = { path = "crates/whelk-process" }
-whelk-job = { path = "crates/whelk-job" }
-whelk-terminal = { path = "crates/whelk-terminal" }
-whelk-line = { path = "crates/whelk-line" }
-whelk-event = { path = "crates/whelk-event" }
-whelk-trace = { path = "crates/whelk-trace" }
-whelk-executor = { path = "crates/whelk-executor" }
+whelk-parser = { path = "crates/whelk-parser", version = "0.2.0" }
+whelk-process = { path = "crates/whelk-process", version = "0.2.0" }
+whelk-job = { path = "crates/whelk-job", version = "0.2.0" }
+whelk-terminal = { path = "crates/whelk-terminal", version = "0.2.0" }
+whelk-line = { path = "crates/whelk-line", version = "0.2.0" }
+whelk-event = { path = "crates/whelk-event", version = "0.2.0" }
+whelk-trace = { path = "crates/whelk-trace", version = "0.2.0" }
+whelk-executor = { path = "crates/whelk-executor", version = "0.2.0" }
 
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the
 # `unsafe` in this project is limited to the places where the *semantics* are
