@@ -25,18 +25,108 @@ const PROMPT: &str = "rsh> ";
 /// Status for a command interrupted by Ctrl-C: `128 + SIGINT`.
 const EXIT_INTERRUPTED: i32 = 130;
 
+/// Status for a command line the shell could not make sense of.
+///
+/// Two, because that is what a shell reports for its own usage errors, as
+/// distinct from 127 for a command it could not find.
+const EXIT_USAGE: i32 = 2;
+
+/// What `--help` prints.
+///
+/// The list of what is missing is part of the help rather than a footnote. A
+/// person who has just installed this and types `ls *.rs` deserves to find out
+/// why it did not glob from the shell itself, not from an issue tracker.
+const HELP: &str = "\
+rsh - a Unix shell built from first principles.
+
+usage:
+  rsh                 start a shell; a terminal gets editing, history, and completion
+  rsh < script        read commands from a file or a pipe, without prompts
+  rsh --benchmark     measure startup, a command, and a pipeline
+  rsh --help          print this
+  rsh --version       print the version
+
+Commands are read from standard input. There is no run-this-file form.
+
+Deliberately not implemented: &&, ||, ;, globbing, command substitution,
+here-documents, shell functions, aliases, and multi-line input. These are
+parsed and refused by name rather than mistaken for arguments.
+";
+
+/// What the command line asked the shell to do.
+///
+/// Anything unrecognised is reported rather than ignored. A shell that quietly
+/// drops an option it does not know has claimed to understand something it did
+/// not, and the rest of this project refuses what it cannot do by name. The
+/// command line is held to the same standard.
+enum Request {
+    /// Start the read-eval-print loop.
+    Run,
+    Help,
+    Version,
+    Benchmark,
+    /// An option the shell does not have.
+    UnknownOption(String),
+    /// A bare word, which is almost always someone expecting `rsh script.sh`.
+    NotAScriptRunner(String),
+}
+
+/// Read the request from the arguments, which are the ones after argv[0].
+fn request(mut arguments: impl Iterator<Item = String>) -> Request {
+    let Some(first) = arguments.next() else {
+        return Request::Run;
+    };
+
+    match first.as_str() {
+        "--help" | "-h" => Request::Help,
+        "--version" | "-V" => Request::Version,
+        "--benchmark" => Request::Benchmark,
+        // A leading dash is a request for behaviour; anything else is a name,
+        // and the two deserve different answers.
+        other if other.starts_with('-') => Request::UnknownOption(other.to_owned()),
+        other => Request::NotAScriptRunner(other.to_owned()),
+    }
+}
+
 fn main() -> ExitCode {
-    // One flag, handled before anything else is set up: the measurements start
-    // fresh shells of their own, and a half-initialised one would be measuring
-    // the wrong thing.
-    if std::env::args().nth(1).as_deref() == Some("--benchmark") {
-        return match benchmark::run() {
-            Ok(()) => ExitCode::SUCCESS,
-            Err(error) => {
-                eprintln!("rsh: benchmark failed: {error}");
-                ExitCode::from(1)
-            }
-        };
+    // The command line is settled before anything is set up. The benchmark
+    // starts fresh shells of its own and a half-initialised one would measure
+    // the wrong thing, and the rest of these answer and leave without needing a
+    // shell at all.
+    match request(std::env::args().skip(1)) {
+        Request::Run => {}
+
+        Request::Help => {
+            print!("{HELP}");
+            return ExitCode::SUCCESS;
+        }
+
+        Request::Version => {
+            println!("rsh {}", env!("CARGO_PKG_VERSION"));
+            return ExitCode::SUCCESS;
+        }
+
+        Request::Benchmark => {
+            return match benchmark::run() {
+                Ok(()) => ExitCode::SUCCESS,
+                Err(error) => {
+                    eprintln!("rsh: benchmark failed: {error}");
+                    ExitCode::from(1)
+                }
+            };
+        }
+
+        Request::UnknownOption(option) => {
+            eprintln!("rsh: unknown option `{option}`");
+            eprintln!("      try `rsh --help`");
+            return ExitCode::from(EXIT_USAGE as u8);
+        }
+
+        Request::NotAScriptRunner(name) => {
+            eprintln!("rsh: commands are read from standard input, not from a file by name");
+            eprintln!("      try `rsh < {name}`");
+            return ExitCode::from(EXIT_USAGE as u8);
+        }
     }
 
     // Before anything else. A shell that has not installed its handlers is a
