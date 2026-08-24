@@ -240,9 +240,7 @@ fn run_external(argv: &[String], redirections: Redirections) -> i32 {
             // nowhere to put a stopped job until there is a job table, so the
             // shell says what it is doing rather than appearing to ignore the
             // keystroke.
-            eprintln!(
-                "rsh: {program}: stopped by {signal}; continuing                  (job control is roadmap phase 6)"
-            );
+            eprintln!("rsh: {program}: stopped by {signal}; continuing (job control is phase 6)");
         })
     });
 

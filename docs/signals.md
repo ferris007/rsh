@@ -123,8 +123,21 @@ Phases 6 and 7. Until then `rsh` does the second, and says so:
 ```console
 rsh> sleep 30
 ^Z
-rsh: sleep: stopped by SIGTSTP; continuing (job control is roadmap phase 6)
+rsh: sleep: stopped by SIGTSTP; continuing (job control is phase 6)
 ```
+
+### An aside worth knowing
+
+`SIGTSTP`, `SIGTTIN`, and `SIGTTOU` are **discarded** when sent to a member of
+an orphaned process group — a group where no member has a parent in a different
+group of the same session. The kernel's reasoning is that there would be nobody
+left able to resume it.
+
+This is easy to trip over in tests. Under a CI runner the shell's process group
+is orphaned, so a test that stops a child with `SIGTSTP` quietly stops testing
+anything: the signal vanishes, the child runs to completion, and the assertions
+about its output still pass. `rsh`'s tests use `SIGSTOP`, which cannot be
+caught, blocked, or discarded.
 
 Continuing is not the right long-term answer. It is the right answer while there
 is nowhere to put a stopped job, because the alternative is stranding a process

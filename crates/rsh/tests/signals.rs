@@ -82,7 +82,14 @@ fn a_stopped_child_is_continued_rather_than_stranded() {
     // prompt and no way back. This test hangs if that regresses.
     //
     // The child stops itself, so there is no timing here at all.
-    let (stdout, stderr, status) = run("sh -c 'kill -TSTP $$; echo continued'\n");
+    //
+    // SIGSTOP rather than SIGTSTP, and the difference is not cosmetic: POSIX
+    // says SIGTSTP, SIGTTIN, and SIGTTOU are *discarded* when sent to a member
+    // of an orphaned process group. Under a CI runner the shell's group is
+    // orphaned, so a SIGTSTP test quietly stops testing anything — the child
+    // never suspends and the assertions on its output still pass. SIGSTOP
+    // cannot be caught, blocked, or discarded.
+    let (stdout, stderr, status) = run("sh -c 'kill -STOP $$; echo continued'\n");
     assert_eq!(stdout, "continued\n");
     assert_eq!(status, 0);
     assert!(
@@ -93,7 +100,8 @@ fn a_stopped_child_is_continued_rather_than_stranded() {
 
 #[test]
 fn a_stopped_stage_does_not_wedge_a_pipeline() {
-    let (stdout, _, _) = run("sh -c 'kill -TSTP $$; echo through' | tr a-z A-Z\n");
+    // SIGSTOP for the same reason as above: it cannot be discarded.
+    let (stdout, _, _) = run("sh -c 'kill -STOP $$; echo through' | tr a-z A-Z\n");
     assert_eq!(stdout, "THROUGH\n");
 }
 
