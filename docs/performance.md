@@ -94,11 +94,15 @@ For a figure comparable against another shell in a few seconds:
 $ rsh --benchmark
 rsh benchmark
 ────────────────────────
-startup          0.82 ms
-echo             1.40 ms
-pipeline         1.48 ms
-memory            2.8 MB
+startup          0.48 ms
+echo             1.01 ms
+pipeline         1.18 ms
+memory            2.3 MB
 ```
+
+A **release** build. The debug binary reports roughly twice these figures —
+0.82 ms of startup rather than 0.48 — which is the first thing to check when a
+number looks wrong.
 
 Every row is end to end — a fresh shell process, the kernel, and where relevant
 another program's startup. That is the honest unit: a user waiting for `echo hi`
