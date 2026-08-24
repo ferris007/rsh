@@ -14,6 +14,8 @@ rsh-executor = { workspace = true }
 rsh-line = { workspace = true }
 rsh-terminal = { workspace = true }
 
+nix = { workspace = true }
+
 [dev-dependencies]
 # Only the tests need to send signals; the shell itself reaches the process
 # table through rsh-process.

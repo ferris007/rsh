@@ -9,6 +9,8 @@ members = [
     "crates/rsh-terminal",
     "crates/rsh-line",
     "crates/rsh-event",
+    "crates/rsh-trace",
+    "benches",
     "experiments/fork_exec",
     "experiments/file_descriptors",
     "experiments/pipes",
@@ -33,6 +35,7 @@ rsh-job = { path = "crates/rsh-job" }
 rsh-terminal = { path = "crates/rsh-terminal" }
 rsh-line = { path = "crates/rsh-line" }
 rsh-event = { path = "crates/rsh-event" }
+rsh-trace = { path = "crates/rsh-trace" }
 rsh-executor = { path = "crates/rsh-executor" }
 
 # Thin, mostly-safe wrappers over libc. Chosen over raw `libc` so that the

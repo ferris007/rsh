@@ -118,7 +118,10 @@ pub fn run(
         // `echo hi > f | cat` writes to the file and `cat` reads nothing.
         plan_into(command, env, &mut redirections).map_err(PipelineError::Redirect)?;
 
-        let argv = expand_all(command.words(), env);
+        let argv = {
+            let _span = rsh_trace::span!("expand", words = command.words().len());
+            expand_all(command.words(), env)
+        };
 
         if let Some(program) = argv.first() {
             if Builtin::lookup(program).is_some() {
@@ -131,6 +134,8 @@ pub fn run(
 
     // Nothing below this line may fail in a way that leaves children unreaped.
     let _ = std::io::stdout().flush();
+
+    let spawning = rsh_trace::span!("spawn", stages = commands.len());
 
     let mut children = Vec::with_capacity(stages.len());
     let mut pgid: Option<Pid> = None;
@@ -157,6 +162,10 @@ pub fn run(
     // The shell's own copies. Until these go, every reader still has a live
     // write end somewhere and would block at end-of-input.
     drop(pipes);
+
+    // Closed here rather than at the end of the function: what follows is
+    // waiting for the job, which is the user's time rather than the shell's.
+    drop(spawning);
 
     let pgid = pgid.unwrap_or(ctx.shell_pgid);
 
@@ -191,6 +200,8 @@ fn foreground(children: Vec<Spawned>, pgid: Pid, ctx: &mut Context<'_>, command_
         // succeed for it instead of stopping it with SIGTTIN.
         let _ = rsh_terminal::give_to(pgid);
     }
+
+    let _span = rsh_trace::span!("wait");
 
     let mut status = 0;
     let mut ended = None;
@@ -325,7 +336,12 @@ fn spawn(stage: Stage, pgid: Option<Pid>, job_control: bool) -> Spawned {
         return Spawned::Failed(0);
     };
 
-    let path = match rsh_process::resolve(program, std::env::var_os("PATH").as_deref()) {
+    let resolved = {
+        let _span = rsh_trace::span!("resolve", program = program);
+        rsh_process::resolve(program, std::env::var_os("PATH").as_deref())
+    };
+
+    let path = match resolved {
         Ok(path) => path,
         Err(error) => {
             eprintln!("rsh: {error}");

@@ -16,38 +16,35 @@ Unix actually works**.
 
 ## Status
 
-Phase 9 — an event loop. The shell waits on standard input and signals together
-rather than blocking on one at a time, over `epoll` on Linux and `kqueue` on
-BSD and macOS.
+Phase 10 — benchmarks, tracing, and allocation-counting regression tests. The
+roadmap is complete apart from two experiments.
 
 ```console
-$ cargo run -p rsh
-rsh> job<TAB>                    # completes to `jobs`
-rsh> echo hello
-hello
-rsh> <UP>                        # recalls `echo hello`
-rsh> grepp pattern
-rsh: grepp: command not found
-      did you mean `grep`?
-rsh> sleep 30 &
-[1] 4242
-rsh> exit
+$ rsh --benchmark
+rsh benchmark
+────────────────────────
+startup          0.82 ms
+echo             1.40 ms
+pipeline         1.48 ms
+memory            2.8 MB
 ```
 
-Nothing there is new — this phase changed the architecture, not the behaviour.
-What it did change: dragging the window while typing now redraws the line at its
-new width, and `COLUMNS` is right for the command being typed rather than the
-one after it.
+The number worth knowing:
 
-`rsh-event` is about two hundred lines and is a very small [`mio`], the layer
-Tokio is built on. That is the point of the phase: an async runtime is a
-scheduler above this line, and below it is a poller saying which descriptors are
-ready.
+```text
+parse a pipeline      1.3 µs
+start one process   492.0 µs      ← 75× the parse, expand, and lookup combined
+```
 
-[`mio`]: https://docs.rs/mio
+A shell spends its life waiting for `fork` and `exec`. Optimising the parser
+would be polishing a rounding error — which is why the benchmarks that guard
+against regressions are the parsing ones, not because parsing is expensive but
+because it is the only part whose timing is stable enough to watch.
 
-Benchmarks and observability are what remain. Syntax the shell cannot run yet is
-parsed, refused by name, and pointed at — never silently treated as an argument.
+The benchmarks also found something nobody had timed: "did you mean", added in
+Phase 8, costs 61 ms. Measured, traced to WSL's Windows filesystem bridge rather
+than to the algorithm, and left alone. See
+[Performance](docs/performance.md).
 
 See [`docs/roadmap.md`](docs/roadmap.md) for the full plan and what lands when.
 
@@ -85,6 +82,8 @@ crates/rsh-job        the job table and process-group bookkeeping
 crates/rsh-terminal   terminal modes, size, and ownership
 crates/rsh-line       line editing, history, and completion
 crates/rsh-event      readiness notification over epoll and kqueue
+crates/rsh-trace      timed, structured diagnostics
+benches/              criterion benchmarks
 crates/rsh-process    fork / exec / wait, PATH resolution — all the `unsafe`
 docs/                 architecture and systems notes
 experiments/          standalone programs, each answering one systems question
