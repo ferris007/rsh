@@ -12,3 +12,10 @@ authors.workspace = true
 
 [lints]
 workspace = true
+
+# No harness: the allocation counter in this test is process-global, so
+# anything libtest does on another thread lands in the measurement. A plain
+# `main` has one thread and nothing else running in it.
+[[test]]
+name = "allocations"
+harness = false

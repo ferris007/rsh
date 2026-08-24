@@ -131,10 +131,24 @@ starts copying a `String` per token.
 | `$HOME/$USER/${PATH}` | 24 | 36 |
 
 A counting global allocator in the test binary does the measuring. One caution
-learned the hard way: the counter is **process-global** and the test harness is
-multi-threaded, so measurements taken in parallel include whatever the
-neighbouring test allocated. A line that allocates 26 times first measured at
-78. The tests are therefore one test.
+learned the hard way: the counter is **process-global**, so it counts every
+allocation made anywhere while it runs — including ones made on another thread.
+libtest runs each test on its own thread and formats results on the main one,
+and that formatting allocates. Parsing `ls` measures its true 8 alone and
+anywhere from 15 to 62 beside one other test.
+
+Collapsing the assertions into a single test is not enough: the harness's own
+threads are still there, which is how the budget first passed on Linux and
+failed on macOS at 17. Filtering by thread is the obvious repair and the wrong
+one — asking which thread you are on means touching thread-local storage from
+inside the global allocator, and on some platforms the first such touch
+allocates, straight back into the allocator that asked.
+
+So the target sets `harness = false` and is a plain `main`: one thread, nothing
+else running in it, the same number every time. It prints the table on every
+run, pass or fail, because the numbers are the point — a run that only says
+`ok` gives nobody the figure to write into the ceilings after a deliberate
+change.
 
 ## Tracing
 
